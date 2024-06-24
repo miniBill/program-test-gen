@@ -1,16 +1,15 @@
 module Frontend exposing (..)
 
 import Browser exposing (UrlRequest(..))
-import Browser.Navigation as Nav
+import Browser.Navigation
 import Html
-import Html.Attributes as Attr
+import Html.Attributes
 import Lamdera
+import Random
+import Sha256
 import Types exposing (..)
 import Url
-
-
-type alias Model =
-    FrontendModel
+import Url.Parser
 
 
 app =
@@ -25,55 +24,119 @@ app =
         }
 
 
-init : Url.Url -> Nav.Key -> ( Model, Cmd FrontendMsg )
+init : Url.Url -> Browser.Navigation.Key -> ( FrontendModel, Cmd FrontendMsg )
 init url key =
-    ( { key = key
-      , message = "Welcome to Lamdera! You're looking at the auto-generated base implementation. Check out src/Frontend.elm to start coding!"
-      }
-    , Cmd.none
-    )
+    case Url.Parser.parse Url.Parser.string url of
+        Just sessionName ->
+            ( LoadingSession
+                { key = key
+                , sessionName = SessionName sessionName
+                }
+            , Lamdera.sendToBackend (LoadSessionRequest (SessionName sessionName))
+            )
+
+        Nothing ->
+            ( LoadingSession { key = key, sessionName = SessionName "" }
+            , Random.generate
+                GotRandomSessionName
+                (Random.map
+                    (\int -> String.fromInt int |> Sha256.sha224 |> String.left 16 |> SessionName)
+                    (Random.int Random.minInt Random.maxInt)
+                )
+            )
 
 
-update : FrontendMsg -> Model -> ( Model, Cmd FrontendMsg )
+update : FrontendMsg -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 update msg model =
+    case model of
+        LoadingSession loading ->
+            case msg of
+                GotRandomSessionName sessionName ->
+                    ( LoadingSession { loading | sessionName = sessionName }
+                    , Cmd.batch
+                        [ Lamdera.sendToBackend (LoadSessionRequest sessionName)
+                        , Browser.Navigation.replaceUrl loading.key ("/" ++ sessionNameToString sessionName)
+                        ]
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        LoadedSession loaded ->
+            let
+                ( newLoaded, cmd ) =
+                    updateLoaded msg loaded
+            in
+            ( LoadedSession newLoaded, cmd )
+
+
+sessionNameToString : SessionName -> String
+sessionNameToString (SessionName sessionName) =
+    sessionName
+
+
+updateLoaded : FrontendMsg -> LoadedData -> ( LoadedData, Cmd FrontendMsg )
+updateLoaded msg model =
     case msg of
         UrlClicked urlRequest ->
             case urlRequest of
                 Internal url ->
                     ( model
-                    , Nav.pushUrl model.key (Url.toString url)
+                    , Browser.Navigation.pushUrl model.key (Url.toString url)
                     )
 
                 External url ->
                     ( model
-                    , Nav.load url
+                    , Browser.Navigation.load url
                     )
 
-        UrlChanged url ->
+        UrlChanged _ ->
             ( model, Cmd.none )
 
-        NoOpFrontendMsg ->
+        PressedResetSession ->
+            ( model, Lamdera.sendToBackend ResetSessionRequest )
+
+        GotRandomSessionName _ ->
             ( model, Cmd.none )
 
 
-updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
+updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
     case msg of
-        NoOpToFrontend ->
-            ( model, Cmd.none )
+        LoadSessionResponse events ->
+            case model of
+                LoadingSession loading ->
+                    ( LoadedSession
+                        { key = loading.key
+                        , sessionName = loading.sessionName
+                        , history = events
+                        }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        SessionUpdate event ->
+            case model of
+                LoadedSession loaded ->
+                    ( LoadedSession { loaded | history = event :: loaded.history }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        ResetSession ->
+            case model of
+                LoadedSession loaded ->
+                    ( LoadedSession { loaded | history = [] }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
 
-view : Model -> Browser.Document FrontendMsg
+view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     { title = ""
     , body =
-        [ Html.div [ Attr.style "text-align" "center", Attr.style "padding-top" "40px" ]
-            [ Html.img [ Attr.src "https://lamdera.app/lamdera-logo-black.png", Attr.width 150 ] []
-            , Html.div
-                [ Attr.style "font-family" "sans-serif"
-                , Attr.style "padding-top" "40px"
-                ]
-                [ Html.text model.message ]
-            ]
-        ]
+        []
     }
