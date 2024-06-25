@@ -1,11 +1,9 @@
 module Types exposing (..)
 
-import Array exposing (Array)
 import AssocList
 import AssocSet
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
-import Dict exposing (Dict)
 import Lamdera exposing (ClientId, SessionId)
 import Url exposing (Url)
 
@@ -75,11 +73,12 @@ type EventType
     | KeyUp KeyEvent
     | Click MouseEvent
     | Http HttpEvent
+    | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
 
 
 type alias KeyEvent =
-    { currentTargetId : String
-    , targetId : String
+    { currentTargetId : Maybe String
+    , targetId : Maybe String
     , ctrlKey : Bool
     , shiftKey : Bool
     , metaKey : Bool
@@ -89,8 +88,8 @@ type alias KeyEvent =
 
 
 type alias MouseEvent =
-    { currentTargetId : String
-    , targetId : String
+    { currentTargetId : Maybe String
+    , targetId : Maybe String
     }
 
 

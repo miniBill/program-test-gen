@@ -2,8 +2,7 @@ module Frontend exposing (..)
 
 import Browser exposing (UrlRequest(..))
 import Browser.Navigation
-import Html
-import Html.Attributes
+import Dict
 import Lamdera
 import Random
 import Sha256
@@ -133,6 +132,99 @@ updateFromBackend msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+
+codegen : List Event -> String
+codegen events =
+    List.foldl
+        (\event { code, indentation, clientCount } ->
+            let
+                indent =
+                    String.repeat indentation "             "
+
+                client =
+                    if clientCount == 0 then
+                        "client"
+
+                    else
+                        "client" ++ String.fromInt clientCount
+            in
+            case event.eventType of
+                Connect { url, sessionId, windowWidth, windowHeight } ->
+                    let
+                        state =
+                            if clientCount == 0 then
+                                "state"
+
+                            else
+                                "state" ++ String.fromInt clientCount
+                    in
+                    { code =
+                        code
+                            ++ (indent ++ "    |> TF.connectFrontend\n")
+                            ++ (indent ++ "        " ++ sessionId ++ "\n")
+                            ++ (indent ++ "        " ++ url ++ "\n")
+                            ++ (indent ++ "{ width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
+                            ++ (indent ++ "        \\( " ++ state ++ ", " ++ client ++ ") ->\n")
+                            ++ (indent ++ "            " ++ state ++ "\n")
+                    , indentation = indentation + 1
+                    , clientCount = clientCount + 1
+                    }
+
+                KeyDown keyEvent ->
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client
+                            ++ ".keyDownEvent { keyCode = "
+                            ++ String.fromInt keyEvent.keyCode
+                            ++ " }\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                KeyUp keyEvent ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                --{ code =
+                --    code
+                --        ++ indent
+                --        ++ "    |> "
+                --        ++ client
+                --        ++ ".keyDownEvent { keyCode = "
+                --        ++ String.fromInt keyEvent.keyCode
+                --        ++ " }\n"
+                --, indentation = indentation
+                --, clientCount = clientCount
+                --}
+                Click mouseEvent ->
+                    { code =
+                        case mouseEvent.targetId of
+                            Just targetId ->
+                                code
+                                    ++ indent
+                                    ++ "    |> "
+                                    ++ client
+                                    ++ ".clickButton "
+                                    ++ targetId
+                                    ++ "\n"
+
+                            Nothing ->
+                                code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                Http httpEvent ->
+                    { code = code, indentation = indentation, clientCount = clientCount }
+        )
+        { code = "TF.start config \"MyTest\"\n", indentation = 0, clientCount = 0 }
+        (List.sortBy .timestamp events)
+        |> .code
 
 
 view : FrontendModel -> Browser.Document FrontendMsg
