@@ -8,6 +8,7 @@ import Lamdera
 import Random
 import Sha256
 import Types exposing (..)
+import Ui
 import Url
 import Url.Parser
 
@@ -122,7 +123,7 @@ updateFromBackend msg model =
                 LoadedSession loaded ->
                     ( LoadedSession { loaded | history = event :: loaded.history }, Cmd.none )
 
-                _ ->
+                LoadingSession _ ->
                     ( model, Cmd.none )
 
         ResetSession ->
@@ -138,5 +139,5 @@ view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     { title = ""
     , body =
-        []
+        [ Ui.layout [] (Ui.text "test ") ]
     }

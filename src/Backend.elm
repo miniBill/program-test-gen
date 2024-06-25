@@ -30,8 +30,8 @@ update msg model =
         ClientDisconnected _ clientId ->
             ( { model
                 | sessions =
-                    Dict.map
-                        (\_ session -> { session | connections = Set.remove clientId session.connections })
+                    AssocList.map
+                        (\_ session -> { session | connections = AssocSet.remove clientId session.connections })
                         model.sessions
               }
             , Cmd.none
