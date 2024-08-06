@@ -231,5 +231,45 @@ view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     { title = ""
     , body =
-        [ Ui.layout [] (Ui.text "test ") ]
+        [ Ui.layout
+            []
+            (case model of
+                LoadingSession loading ->
+                    Ui.text "Loading session..."
+
+                LoadedSession loaded ->
+                    eventsView loaded.history
+            )
+        ]
     }
+
+
+eventsView : List Event -> Ui.Element msg
+eventsView events =
+    case events of
+        [] ->
+            Ui.text "No events have arrived"
+
+        _ ->
+            List.map
+                (\event ->
+                    (case event.eventType of
+                        KeyDown keyEvent ->
+                            keyEvent.key ++ " key down"
+
+                        KeyUp keyEvent ->
+                            keyEvent.key ++ " key up"
+
+                        Click mouseEvent ->
+                            "mouse click"
+
+                        Http httpEvent ->
+                            "http request"
+
+                        Connect record ->
+                            record.sessionId ++ " connected"
+                    )
+                        |> Ui.text
+                )
+                events
+                |> Ui.column []
