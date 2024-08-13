@@ -1,5 +1,6 @@
 module Types exposing (..)
 
+import Array exposing (Array)
 import AssocList
 import AssocSet
 import Browser exposing (UrlRequest)
@@ -20,7 +21,7 @@ type alias LoadingData =
 type alias LoadedData =
     { key : Key
     , sessionName : SessionName
-    , history : List Event
+    , history : Array Event
     }
 
 
@@ -30,7 +31,7 @@ type alias BackendModel =
 
 
 type alias Session =
-    { history : List Event
+    { history : Array Event
     , connections : AssocSet.Set ClientId
     }
 
@@ -44,6 +45,7 @@ type FrontendMsg
     | UrlChanged Url
     | PressedResetSession
     | GotRandomSessionName SessionName
+    | ScrolledToBottom
 
 
 type ToBackend
@@ -56,7 +58,7 @@ type BackendMsg
 
 
 type ToFrontend
-    = LoadSessionResponse (List Event)
+    = LoadSessionResponse (Array Event)
     | SessionUpdate Event
     | ResetSession
 
@@ -72,13 +74,13 @@ type EventType
     = KeyDown KeyEvent
     | KeyUp KeyEvent
     | Click MouseEvent
+    | ClickLink LinkEvent
     | Http HttpEvent
     | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
 
 
 type alias KeyEvent =
-    { currentTargetId : Maybe String
-    , targetId : Maybe String
+    { targetId : Maybe String
     , ctrlKey : Bool
     , shiftKey : Bool
     , metaKey : Bool
@@ -88,8 +90,12 @@ type alias KeyEvent =
 
 
 type alias MouseEvent =
-    { currentTargetId : Maybe String
-    , targetId : Maybe String
+    { targetId : Maybe String
+    }
+
+
+type alias LinkEvent =
+    { path : String
     }
 
 

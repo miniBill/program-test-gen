@@ -1,8 +1,10 @@
 module RPC exposing (..)
 
+import Array
 import AssocList
 import AssocSet
 import Codec exposing (Codec)
+import Dict
 import Json.Decode
 import Json.Encode
 import Lamdera
@@ -26,14 +28,7 @@ eventEndpointCodec =
 
 sessionNameCodec : Codec SessionName
 sessionNameCodec =
-    Codec.custom
-        (\sessionNameEncoder value ->
-            case value of
-                Types.SessionName arg0 ->
-                    sessionNameEncoder arg0
-        )
-        |> Codec.variant1 "SessionName" SessionName Codec.string
-        |> Codec.buildCustom
+    Codec.map SessionName (\(SessionName a) -> a) Codec.string
 
 
 eventCodec : Codec Event
@@ -48,7 +43,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder httpEncoder connectEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -59,6 +54,9 @@ eventTypeCodec =
                 Types.Click arg0 ->
                     clickEncoder arg0
 
+                Types.ClickLink arg0 ->
+                    linkEncoder arg0
+
                 Types.Http arg0 ->
                     httpEncoder arg0
 
@@ -68,6 +66,7 @@ eventTypeCodec =
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
         |> Codec.variant1 "Click" Types.Click mouseEventCodec
+        |> Codec.variant1 "ClickLink" Types.ClickLink linkEventCodec
         |> Codec.variant1 "Http" Types.Http httpEventCodec
         |> Codec.variant1
             "Connect"
@@ -88,7 +87,6 @@ eventTypeCodec =
 keyEventCodec : Codec Types.KeyEvent
 keyEventCodec =
     Codec.object Types.KeyEvent
-        |> Codec.field "currentTargetId" .currentTargetId (Codec.nullable Codec.string)
         |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
         |> Codec.field "ctrlKey" .ctrlKey Codec.bool
         |> Codec.field "shiftKey" .shiftKey Codec.bool
@@ -101,8 +99,14 @@ keyEventCodec =
 mouseEventCodec : Codec Types.MouseEvent
 mouseEventCodec =
     Codec.object Types.MouseEvent
-        |> Codec.field "currentTargetId" .currentTargetId (Codec.nullable Codec.string)
         |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
+        |> Codec.buildObject
+
+
+linkEventCodec : Codec Types.LinkEvent
+linkEventCodec =
+    Codec.object Types.LinkEvent
+        |> Codec.field "path" .path Codec.string
         |> Codec.buildObject
 
 
@@ -121,15 +125,39 @@ lamdera_handleEndpoints :
     -> BackendModel
     -> ( LamderaRPC.RPCResult, BackendModel, Cmd BackendMsg )
 lamdera_handleEndpoints _ args model =
+    let
+        _ =
+            Debug.log "endpoint" args
+    in
     case args.endpoint of
         "event" ->
             case args.body of
-                BodyJson json ->
-                    case Codec.decodeValue eventEndpointCodec json of
+                BodyString json ->
+                    case Codec.decodeString eventEndpointCodec json |> Debug.log "result" of
                         Ok { sessionName, event } ->
+                            let
+                                model2 : BackendModel
+                                model2 =
+                                    { model
+                                        | sessions =
+                                            AssocList.update
+                                                sessionName
+                                                (\maybeSession ->
+                                                    (case maybeSession of
+                                                        Just session ->
+                                                            { session | history = Array.push event session.history }
+
+                                                        Nothing ->
+                                                            { history = Array.fromList [ event ], connections = AssocSet.empty }
+                                                    )
+                                                        |> Just
+                                                )
+                                                model.sessions
+                                    }
+                            in
                             ( LamderaRPC.ResultString ""
-                            , model
-                            , broadcastToClients sessionName (SessionUpdate event) model
+                            , model2
+                            , broadcastToClients sessionName (SessionUpdate event) model2
                             )
 
                         Err error ->

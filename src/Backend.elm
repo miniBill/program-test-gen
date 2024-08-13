@@ -1,5 +1,6 @@
 module Backend exposing (..)
 
+import Array
 import AssocList
 import AssocSet
 import Lamdera exposing (ClientId, SessionId)
@@ -60,7 +61,7 @@ updateFromFrontend sessionId clientId msg model =
                     let
                         session : Session
                         session =
-                            { history = []
+                            { history = Array.empty
                             , connections = AssocSet.singleton clientId
                             }
                     in
@@ -77,7 +78,7 @@ updateFromFrontend sessionId clientId msg model =
                                 | sessions =
                                     AssocList.insert
                                         sessionName
-                                        { session | history = [] }
+                                        { session | history = Array.empty }
                                         model.sessions
                             }
                     in
