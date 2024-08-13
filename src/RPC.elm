@@ -116,6 +116,7 @@ httpEventCodec =
         |> Codec.field "responseType" .responseType Codec.string
         |> Codec.field "method" .method Codec.string
         |> Codec.field "url" .url Codec.string
+        |> Codec.field "responseHash" .responseHash Codec.string
         |> Codec.buildObject
 
 

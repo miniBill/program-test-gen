@@ -103,4 +103,5 @@ type alias HttpEvent =
     { responseType : String
     , method : String
     , url : String
+    , responseHash : String
     }

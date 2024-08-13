@@ -262,11 +262,43 @@ eventsToEvent2 events =
         |> List.reverse
 
 
+dropPrefix prefix text =
+    if String.startsWith prefix text then
+        String.dropLeft (String.length prefix) text
+
+    else
+        text
+
+
 codegen : List Event -> String
 codegen events =
     let
+        clients : List ClientId
         clients =
             List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
+
+        httpRequests : String
+        httpRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        Http http ->
+                            http
+                                |> Just
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
+                |> List.map
+                    (\http ->
+                        ("        (\"" ++ http.method ++ "\", \"" ++ dropPrefix "http://localhost:8001/" http.url ++ "\") ->\n")
+                            ++ "            Dict.get \""
+                            ++ http.responseHash
+                            ++ "\" httpData |> Maybe.map (BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = \"OK\", headers = Dict.empty }) |> Maybe.withDefault UnhandledHttpRequest\n\n"
+                    )
+                |> String.concat
     in
     List.foldl
         (\event { code, indentation, clientCount } ->
@@ -296,7 +328,7 @@ codegen events =
                         code
                             ++ (indent ++ "    |> TF.connectFrontend\n")
                             ++ (indent ++ "        (Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
-                            ++ (indent ++ "        " ++ url ++ "\n")
+                            ++ (indent ++ "        (Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
                             ++ (indent ++ "        { width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
                             ++ (indent ++ "        (\\( " ++ state ++ ", " ++ client ++ ") ->\n")
                             ++ (indent ++ "            " ++ state ++ "\n")
@@ -371,9 +403,57 @@ codegen events =
                     , clientCount = clientCount
                     }
         )
-        { code = "import Effect.Browser.Dom as Dom\nimport Effect.Test as TF\n\nTF.start config \"MyTest\"\n", indentation = 0, clientCount = 0 }
+        { code =
+            """import Effect.Browser.Dom as Dom
+import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
+import Frontend
+import Backend
+import Url
+import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
+import Dict exposing (Dict)
+
+domain : Url
+domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path : "", query = Nothing, fragment = Nothing }
+
+
+config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel"
+config httpData =
+    TF.Config Frontend.app Backend.app (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
+
+
+handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
+handlePortToJs { currentRequest } =
+    Nothing
+
+
+handleFileRequest : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> FileUpload
+handleFileRequest _ =
+    UnhandledFileUpload
+
+
+handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
+handleHttpRequests httpData { currentRequest } =
+    case (currentRequest.method, currentRequest.url) of
+"""
+                ++ httpRequests
+                ++ """        _ ->
+            UnhandledHttpRequest
+
+
+handleMultiFileUpload : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> MultipleFilesUpload
+handleMultiFileUpload _ =
+    UnhandledMultiFileUpload
+
+
+tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests httpData =
+    [ TF.start (config httpData) "MyTest"
+    """
+        , indentation = 0
+        , clientCount = 0
+        }
         (eventsToEvent2 events)
-        |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
+        |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")" ++ "\n    ]")
 
 
 targetIdFunc : String -> String
