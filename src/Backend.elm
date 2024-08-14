@@ -6,6 +6,7 @@ import AssocSet
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import RPC
+import Set
 import Types exposing (..)
 
 
@@ -54,7 +55,7 @@ updateFromFrontend sessionId clientId msg model =
                                 }
                                 model.sessions
                       }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
+                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history session.hiddenEvents)
                     )
 
                 Nothing ->
@@ -63,10 +64,11 @@ updateFromFrontend sessionId clientId msg model =
                         session =
                             { history = Array.empty
                             , connections = AssocSet.singleton clientId
+                            , hiddenEvents = Set.empty
                             }
                     in
                     ( { model | sessions = AssocList.insert sessionName session model.sessions }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
+                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history session.hiddenEvents)
                     )
 
         ResetSessionRequest ->
@@ -84,6 +86,29 @@ updateFromFrontend sessionId clientId msg model =
                     in
                     ( model2
                     , RPC.broadcastToClients sessionName ResetSession model2
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        SetEventVisibilityRequest { index, isHidden } ->
+            case getSessionByClientId clientId model of
+                Just ( sessionName, session ) ->
+                    ( { model
+                        | sessions =
+                            AssocList.insert
+                                sessionName
+                                { session
+                                    | hiddenEvents =
+                                        if isHidden then
+                                            Set.insert index session.hiddenEvents
+
+                                        else
+                                            Set.remove index session.hiddenEvents
+                                }
+                                model.sessions
+                      }
+                    , Cmd.none
                     )
 
                 Nothing ->

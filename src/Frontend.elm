@@ -1,21 +1,28 @@
-module Frontend exposing (..)
+port module Frontend exposing (..)
 
-import Array
+import Array exposing (Array)
 import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Navigation
+import Html
+import Icons
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Random
+import Set exposing (Set)
 import Sha256
 import Task
 import Types exposing (..)
 import Ui
+import Ui.Anim
 import Ui.Font
 import Ui.Input
 import Url
 import Url.Parser
+
+
+port copy_to_clipboard_to_js : String -> Cmd msg
 
 
 app =
@@ -108,17 +115,55 @@ updateLoaded msg model =
         ScrolledToBottom ->
             ( model, Cmd.none )
 
+        PressedSetEventVisibility index isHidden ->
+            ( { model
+                | hiddenEvents =
+                    if isHidden then
+                        Set.insert index model.hiddenEvents
+
+                    else
+                        Set.remove index model.hiddenEvents
+              }
+            , SetEventVisibilityRequest { index = index, isHidden = isHidden } |> Lamdera.sendToBackend
+            )
+
+        PressedCopyCode ->
+            ( { model | copyCounter = model.copyCounter + 1 }, copy_to_clipboard_to_js (codegen (Array.toList model.history)) )
+
+        ElmUiMsg msg2 ->
+            ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
+
+
+addEvent : Event -> Array Event -> Array Event
+addEvent event events =
+    case Array.get (Array.length events - 1) events of
+        Just last ->
+            if event.timestamp - last.timestamp < 0 then
+                Array.push event events
+                    |> Array.toList
+                    |> List.sortBy .timestamp
+                    |> Array.fromList
+
+            else
+                Array.push event events
+
+        Nothing ->
+            Array.push event events
+
 
 updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
     case msg of
-        LoadSessionResponse events ->
+        LoadSessionResponse events hiddenEvents ->
             case model of
                 LoadingSession loading ->
                     ( LoadedSession
                         { key = loading.key
                         , sessionName = loading.sessionName
                         , history = events
+                        , hiddenEvents = hiddenEvents
+                        , copyCounter = 0
+                        , elmUiState = Ui.Anim.init
                         }
                     , Cmd.none
                     )
@@ -262,6 +307,7 @@ eventsToEvent2 events =
         |> List.reverse
 
 
+dropPrefix : String -> String -> String
 dropPrefix prefix text =
     if String.startsWith prefix text then
         String.dropLeft (String.length prefix) text
@@ -277,7 +323,7 @@ codegen events =
         clients =
             List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
 
-        httpRequests : String
+        httpRequests : List HttpEvent
         httpRequests =
             List.filterMap
                 (\event ->
@@ -291,13 +337,21 @@ codegen events =
                 )
                 events
                 |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
-                |> List.map
-                    (\http ->
-                        ("        (\"" ++ http.method ++ "\", \"" ++ dropPrefix "http://localhost:8001/" http.url ++ "\") ->\n")
-                            ++ "            Dict.get \""
-                            ++ http.responseHash
-                            ++ "\" httpData |> Maybe.map (BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = \"OK\", headers = Dict.empty }) |> Maybe.withDefault UnhandledHttpRequest\n\n"
-                    )
+
+        httpRequestFiles : String
+        httpRequestFiles =
+            List.map (\http -> "\"" ++ http.filepath ++ "\"") httpRequests |> String.join ", "
+
+        httpRequestCaseOfs : String
+        httpRequestCaseOfs =
+            List.map
+                (\http ->
+                    ("        (\"" ++ http.method ++ "\", \"" ++ dropPrefix "http://localhost:8001/" http.url ++ "\") ->\n")
+                        ++ "            Dict.get \""
+                        ++ http.filepath
+                        ++ "\" httpData |> Maybe.map (BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = \"OK\", headers = Dict.empty }) |> Maybe.withDefault UnhandledHttpRequest\n\n"
+                )
+                httpRequests
                 |> String.concat
     in
     List.foldl
@@ -404,21 +458,39 @@ codegen events =
                     }
         )
         { code =
-            """import Effect.Browser.Dom as Dom
+            """module MyTests exposing (main, setup, tests)
+
+import Effect.Browser.Dom as Dom
 import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
 import Frontend
 import Backend
-import Url
+import Url exposing (Url)
+import Bytes exposing (Bytes)
 import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
 import Dict exposing (Dict)
+import Effect.Lamdera
+import Json.Decode
+
+setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
+setup =
+    TF.viewerWith tests
+        |> TF.addBytesFiles [ """
+                ++ httpRequestFiles
+                ++ """ ]
+
+
+main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+main =
+    TF.startViewer setup
+
 
 domain : Url
 domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path : "", query = Nothing, fragment = Nothing }
 
 
-config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel"
+config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
 config httpData =
-    TF.Config Frontend.app Backend.app (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
+    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
 
 
 handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
@@ -435,7 +507,7 @@ handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data :
 handleHttpRequests httpData { currentRequest } =
     case (currentRequest.method, currentRequest.url) of
 """
-                ++ httpRequests
+                ++ httpRequestCaseOfs
                 ++ """        _ ->
             UnhandledHttpRequest
 
@@ -465,81 +537,141 @@ view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     { title = ""
     , body =
-        [ Ui.layout
-            [ Ui.Font.family [ Ui.Font.sansSerif ], Ui.padding 16, Ui.height Ui.fill ]
-            (case model of
-                LoadingSession loading ->
-                    Ui.text "Loading session..."
+        [ case model of
+            LoadingSession _ ->
+                Html.text "Loading session..."
 
-                LoadedSession loaded ->
-                    let
-                        eventsList : List Event
-                        eventsList =
-                            Array.toList loaded.history
-                    in
-                    Ui.row
+            LoadedSession loaded ->
+                let
+                    eventsList : List Event
+                    eventsList =
+                        Array.toList loaded.history
+                in
+                Ui.Anim.layout
+                    { options = []
+                    , breakpoints = Nothing
+                    , toMsg = ElmUiMsg
+                    }
+                    loaded.elmUiState
+                    [ Ui.Font.family [ Ui.Font.sansSerif ], Ui.padding 16, Ui.height Ui.fill ]
+                    (Ui.row
                         [ Ui.height Ui.fill ]
                         [ Ui.column
                             [ Ui.height Ui.fill, Ui.width Ui.shrink, Ui.spacing 8 ]
-                            [ Ui.el
-                                [ Ui.Input.button PressedResetSession
-                                , Ui.border 1
-                                , Ui.borderColor (Ui.rgb 100 100 100)
-                                , Ui.background (Ui.rgb 240 240 240)
-                                , Ui.width Ui.shrink
-                                , Ui.padding 8
-                                ]
-                                (Ui.text "Reset")
-                            , eventsView eventsList
+                            [ button PressedResetSession [ Ui.text "Reset" ]
+                            , eventsView eventsList loaded.hiddenEvents
                             ]
-                        , codegen eventsList
-                            |> Ui.text
-                            |> Ui.el
-                                [ Ui.Font.family [ Ui.Font.monospace ]
-                                , Ui.Font.size 12
-                                , Ui.Font.exactWhitespace
-                                , Ui.alignTop
+                        , Ui.column
+                            [ Ui.height Ui.fill, Ui.spacing 8 ]
+                            [ Ui.row
+                                [ Ui.spacing 4 ]
+                                [ button PressedCopyCode [ Icons.copy, Ui.text " Copy" ]
+                                , if loaded.copyCounter > 0 then
+                                    Ui.el
+                                        [ Ui.Anim.intro
+                                            (Ui.Anim.ms 2000)
+                                            { start = [ Ui.Anim.opacity 1 ], to = [ Ui.Anim.opacity 0 ] }
+                                        ]
+                                        (Ui.text "Copied!")
+
+                                  else
+                                    Ui.none
                                 ]
+                            , List.indexedMap Tuple.pair eventsList
+                                |> List.filterMap
+                                    (\( index, event ) ->
+                                        if Set.member index loaded.hiddenEvents then
+                                            Nothing
+
+                                        else
+                                            Just event
+                                    )
+                                |> codegen
+                                |> Ui.text
+                                |> Ui.el
+                                    [ Ui.Font.family [ Ui.Font.monospace ]
+                                    , Ui.Font.size 12
+                                    , Ui.Font.exactWhitespace
+                                    , Ui.scrollable
+                                    ]
+                            ]
                         ]
-            )
+                    )
         ]
     }
 
 
-eventsView : List Event -> Ui.Element msg
-eventsView events =
+button : msg -> List (Ui.Element msg) -> Ui.Element msg
+button msg content =
+    Ui.row
+        [ Ui.Input.button msg
+        , Ui.border 1
+        , Ui.borderColor (Ui.rgb 100 100 100)
+        , Ui.background (Ui.rgb 240 240 240)
+        , Ui.width Ui.shrink
+        , Ui.padding 8
+        , Ui.spacing 4
+        , Ui.rounded 4
+        ]
+        content
+
+
+eventsView : List Event -> Set Int -> Ui.Element FrontendMsg
+eventsView events hiddenEvents =
     case events of
         [] ->
             Ui.el [ Ui.width (Ui.px 300) ] (Ui.text "No events have arrived")
 
         _ ->
-            List.map
-                (\event ->
-                    (case event.eventType of
-                        KeyDown keyEvent ->
-                            keyEvent.key ++ " key down"
+            List.indexedMap
+                (\index event ->
+                    let
+                        isHidden : Bool
+                        isHidden =
+                            Set.member index hiddenEvents
+                    in
+                    Ui.row
+                        [ Ui.Input.button (PressedSetEventVisibility index (not isHidden))
+                        , Ui.spacing 4
+                        , Ui.Font.color
+                            (if isHidden then
+                                Ui.rgb 120 120 120
 
-                        KeyUp keyEvent ->
-                            keyEvent.key ++ " key up"
+                             else
+                                Ui.rgb 0 0 0
+                            )
+                        ]
+                        [ if isHidden then
+                            Icons.eyeClosed
 
-                        Click mouseEvent ->
-                            case mouseEvent.targetId of
-                                Just id ->
-                                    "clicked on " ++ id
+                          else
+                            Icons.eye
+                        , (case event.eventType of
+                            KeyDown keyEvent ->
+                                keyEvent.key ++ " key down"
 
-                                Nothing ->
-                                    "clicked on nothing"
+                            KeyUp keyEvent ->
+                                keyEvent.key ++ " key up"
 
-                        Http httpEvent ->
-                            "http request"
+                            Click mouseEvent ->
+                                case mouseEvent.targetId of
+                                    Just id ->
+                                        "clicked on " ++ id
 
-                        Connect record ->
-                            record.sessionId ++ " connected"
+                                    Nothing ->
+                                        "clicked on nothing"
 
-                        ClickLink linkEvent ->
-                            "clicked link to " ++ linkEvent.path
-                    )
-                        |> Ui.text
+                            Http httpEvent ->
+                                "http request"
+
+                            Connect record ->
+                                record.sessionId ++ " connected"
+
+                            ClickLink linkEvent ->
+                                "clicked link to " ++ linkEvent.path
+                          )
+                            |> Ui.text
+                        ]
                 )
                 events
                 |> Ui.column

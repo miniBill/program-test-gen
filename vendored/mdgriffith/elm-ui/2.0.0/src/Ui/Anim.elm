@@ -762,6 +762,6 @@ mapAttribute =
 
 
 {-| -}
-update : (Msg -> msg) -> Msg -> State -> ( State, Cmd msg )
-update =
-    Two.update
+update : (Msg -> msg) -> Msg -> State -> State
+update a b c =
+    Two.update a b c |> Tuple.first

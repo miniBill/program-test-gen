@@ -5,10 +5,12 @@ import AssocList
 import AssocSet
 import Codec exposing (Codec)
 import Dict
+import Frontend
 import Json.Decode
 import Json.Encode
 import Lamdera
 import LamderaRPC exposing (HttpBody(..))
+import Set
 import Types exposing (BackendModel, BackendMsg(..), Event, SessionName(..), ToFrontend(..))
 
 
@@ -116,7 +118,7 @@ httpEventCodec =
         |> Codec.field "responseType" .responseType Codec.string
         |> Codec.field "method" .method Codec.string
         |> Codec.field "url" .url Codec.string
-        |> Codec.field "responseHash" .responseHash Codec.string
+        |> Codec.field "filepath" .filepath Codec.string
         |> Codec.buildObject
 
 
@@ -146,10 +148,13 @@ lamdera_handleEndpoints _ args model =
                                                 (\maybeSession ->
                                                     (case maybeSession of
                                                         Just session ->
-                                                            { session | history = Array.push event session.history }
+                                                            { session | history = Frontend.addEvent event session.history }
 
                                                         Nothing ->
-                                                            { history = Array.fromList [ event ], connections = AssocSet.empty }
+                                                            { history = Array.fromList [ event ]
+                                                            , connections = AssocSet.empty
+                                                            , hiddenEvents = Set.empty
+                                                            }
                                                     )
                                                         |> Just
                                                 )
