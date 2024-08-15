@@ -45,7 +45,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -64,6 +64,9 @@ eventTypeCodec =
 
                 Types.Connect arg0 ->
                     connectEncoder arg0
+
+                Types.Paste arg0 ->
+                    pasteEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -83,6 +86,7 @@ eventTypeCodec =
                 |> Codec.field "windowHeight" .windowHeight Codec.int
                 |> Codec.buildObject
             )
+        |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
         |> Codec.buildCustom
 
 
@@ -102,6 +106,14 @@ mouseEventCodec : Codec Types.MouseEvent
 mouseEventCodec =
     Codec.object Types.MouseEvent
         |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
+        |> Codec.buildObject
+
+
+pasteEventCodec : Codec Types.PasteEvent
+pasteEventCodec =
+    Codec.object Types.PasteEvent
+        |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
+        |> Codec.field "text" .text Codec.string
         |> Codec.buildObject
 
 

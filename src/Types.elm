@@ -87,6 +87,7 @@ type EventType
     | ClickLink LinkEvent
     | Http HttpEvent
     | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
+    | Paste PasteEvent
 
 
 type alias KeyEvent =
@@ -101,6 +102,12 @@ type alias KeyEvent =
 
 type alias MouseEvent =
     { targetId : Maybe String
+    }
+
+
+type alias PasteEvent =
+    { targetId : Maybe String
+    , text : String
     }
 
 

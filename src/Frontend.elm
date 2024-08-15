@@ -220,7 +220,7 @@ addKeyToInputString keyEvent string =
     if keyEvent.key == "Backspace" then
         String.dropRight 1 string
 
-    else if String.length keyEvent.key > 2 then
+    else if String.length keyEvent.key > 2 || keyEvent.ctrlKey || keyEvent.metaKey then
         string
 
     else
@@ -300,6 +300,35 @@ eventsToEvent2 events =
 
                 ( Http httpEvent, _ ) ->
                     state
+
+                ( Paste pasteEvent, Just (InputString input) ) ->
+                    case pasteEvent.targetId of
+                        Just targetId ->
+                            if targetId == input.targetId && state.previousClientId == clientId then
+                                { state
+                                    | previousEvent = InputString { input | text = input.text ++ pasteEvent.text } |> Just
+                                    , previousClientId = clientId
+                                }
+
+                            else
+                                { previousEvent = InputString { targetId = targetId, text = pasteEvent.text } |> Just
+                                , previousClientId = clientId
+                                , rest = [ toEvent clientId (InputString input) ] ++ state.rest
+                                }
+
+                        Nothing ->
+                            state
+
+                ( Paste pasteEvent, _ ) ->
+                    case pasteEvent.targetId of
+                        Just targetId ->
+                            { previousEvent = InputString { targetId = targetId, text = pasteEvent.text } |> Just
+                            , previousClientId = clientId
+                            , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                            }
+
+                        Nothing ->
+                            state
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -338,21 +367,20 @@ codegen events =
                 events
                 |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
 
-        httpRequestFiles : String
-        httpRequestFiles =
-            List.map (\http -> "\"" ++ http.filepath ++ "\"") httpRequests |> String.join ", "
-
-        httpRequestCaseOfs : String
-        httpRequestCaseOfs =
+        httpRequestsText : String
+        httpRequestsText =
             List.map
                 (\http ->
-                    ("        (\"" ++ http.method ++ "\", \"" ++ dropPrefix "http://localhost:8001/" http.url ++ "\") ->\n")
-                        ++ "            Dict.get \""
+                    "(\""
+                        ++ http.method
+                        ++ "_"
+                        ++ dropPrefix "http://localhost:8001/" http.url
+                        ++ "\", \""
                         ++ http.filepath
-                        ++ "\" httpData |> Maybe.map (BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = \"OK\", headers = Dict.empty }) |> Maybe.withDefault UnhandledHttpRequest\n\n"
+                        ++ "\")"
                 )
                 httpRequests
-                |> String.concat
+                |> String.join ", "
     in
     List.foldl
         (\event { code, indentation, clientCount } ->
@@ -470,13 +498,12 @@ import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, Backen
 import Dict exposing (Dict)
 import Effect.Lamdera
 import Json.Decode
+import Set exposing (Set)
 
 setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
     TF.viewerWith tests
-        |> TF.addBytesFiles [ """
-                ++ httpRequestFiles
-                ++ """ ]
+        |> TF.addBytesFiles [ Dict.values httpRequests ]
 
 
 main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
@@ -502,13 +529,27 @@ handleFileRequest : { data : TF.Data frontendModel backendModel, mimeTypes : Lis
 handleFileRequest _ =
     UnhandledFileUpload
 
+httpRequests : Dict String String
+httpRequests = 
+    [ """
+                ++ httpRequestsText
+                ++ """
+    ] 
+        |> Set.fromList
+
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
 handleHttpRequests httpData { currentRequest } =
-    case (currentRequest.method, currentRequest.url) of
-"""
-                ++ httpRequestCaseOfs
-                ++ """        _ ->
+    case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
+        Just filepath -> 
+            case Dict.get filepath httpData of 
+                Just data -> 
+                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty })
+                
+                Nothing -> 
+                    UnhandledHttpRequest
+            
+        Nothing ->
             UnhandledHttpRequest
 
 
@@ -669,6 +710,15 @@ eventsView events hiddenEvents =
 
                             ClickLink linkEvent ->
                                 "clicked link to " ++ linkEvent.path
+
+                            Paste pasteEvent ->
+                                "pasted text "
+                                    ++ (if String.length pasteEvent.text < 10 then
+                                            pasteEvent.text
+
+                                        else
+                                            String.left 7 pasteEvent.text ++ "..."
+                                       )
                           )
                             |> Ui.text
                         ]
