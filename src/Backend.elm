@@ -80,7 +80,7 @@ updateFromFrontend sessionId clientId msg model =
                                 | sessions =
                                     AssocList.insert
                                         sessionName
-                                        { session | history = Array.empty }
+                                        { session | history = Array.empty, hiddenEvents = Set.empty }
                                         model.sessions
                             }
                     in

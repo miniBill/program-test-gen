@@ -185,7 +185,7 @@ updateFromBackend msg model =
         ResetSession ->
             case model of
                 LoadedSession loaded ->
-                    ( LoadedSession { loaded | history = Array.empty }, Cmd.none )
+                    ( LoadedSession { loaded | history = Array.empty, hiddenEvents = Set.empty }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -420,13 +420,20 @@ codegen events =
 
                 KeyDown2 keyEvent ->
                     { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client
-                            ++ ".keyDownEvent { keyCode = "
-                            ++ String.fromInt keyEvent.keyCode
-                            ++ " }\n"
+                        case keyEvent.targetId of
+                            Just targetId ->
+                                code
+                                    ++ indent
+                                    ++ "    |> "
+                                    ++ client
+                                    ++ ".keyDownEvent "
+                                    ++ targetIdFunc targetId
+                                    ++ " { keyCode = "
+                                    ++ String.fromInt keyEvent.keyCode
+                                    ++ " }\n"
+
+                            Nothing ->
+                                code
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -503,7 +510,7 @@ import Set exposing (Set)
 setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
     TF.viewerWith tests
-        |> TF.addBytesFiles [ Dict.values httpRequests ]
+        |> TF.addBytesFiles (Dict.values httpRequests)
 
 
 main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
@@ -512,7 +519,7 @@ main =
 
 
 domain : Url
-domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path : "", query = Nothing, fragment = Nothing }
+domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
 
 
 config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
@@ -535,7 +542,7 @@ httpRequests =
                 ++ httpRequestsText
                 ++ """
     ] 
-        |> Set.fromList
+        |> Dict.fromList
 
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
@@ -544,7 +551,7 @@ handleHttpRequests httpData { currentRequest } =
         Just filepath -> 
             case Dict.get filepath httpData of 
                 Just data -> 
-                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty })
+                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
                 
                 Nothing -> 
                     UnhandledHttpRequest
