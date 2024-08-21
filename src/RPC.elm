@@ -45,7 +45,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder inputEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -67,6 +67,9 @@ eventTypeCodec =
 
                 Types.Paste arg0 ->
                     pasteEncoder arg0
+
+                Types.Input arg0 ->
+                    inputEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -87,13 +90,14 @@ eventTypeCodec =
                 |> Codec.buildObject
             )
         |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
+        |> Codec.variant1 "Input" Types.Input inputEventCodec
         |> Codec.buildCustom
 
 
 keyEventCodec : Codec Types.KeyEvent
 keyEventCodec =
     Codec.object Types.KeyEvent
-        |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
+        |> Codec.field "targetId" .targetId Codec.string
         |> Codec.field "ctrlKey" .ctrlKey Codec.bool
         |> Codec.field "shiftKey" .shiftKey Codec.bool
         |> Codec.field "metaKey" .metaKey Codec.bool
@@ -113,6 +117,14 @@ pasteEventCodec : Codec Types.PasteEvent
 pasteEventCodec =
     Codec.object Types.PasteEvent
         |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
+        |> Codec.field "text" .text Codec.string
+        |> Codec.buildObject
+
+
+inputEventCodec : Codec Types.InputEvent
+inputEventCodec =
+    Codec.object Types.InputEvent
+        |> Codec.field "targetId" .targetId Codec.string
         |> Codec.field "text" .text Codec.string
         |> Codec.buildObject
 

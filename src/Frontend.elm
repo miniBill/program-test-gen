@@ -9,6 +9,7 @@ import Html
 import Icons
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
+import Maybe.Extra
 import Random
 import Set exposing (Set)
 import Sha256
@@ -197,34 +198,12 @@ eventsListContainer =
 
 
 type EventType2
-    = InputString { targetId : String, text : String }
+    = Input2 { targetId : String, text : String }
     | Click2 MouseEvent
     | ClickLink2 LinkEvent
     | Connect2 { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
     | KeyUp2 KeyEvent
     | KeyDown2 KeyEvent
-
-
-maybeToList : Maybe a -> List a
-maybeToList maybe =
-    case maybe of
-        Just a ->
-            [ a ]
-
-        Nothing ->
-            []
-
-
-addKeyToInputString : KeyEvent -> String -> String
-addKeyToInputString keyEvent string =
-    if keyEvent.key == "Backspace" then
-        String.dropRight 1 string
-
-    else if String.length keyEvent.key > 2 || keyEvent.ctrlKey || keyEvent.metaKey then
-        string
-
-    else
-        string ++ keyEvent.key
 
 
 eventsToEvent2 : List Event -> List { eventType : EventType2, clientId : ClientId }
@@ -238,82 +217,64 @@ eventsToEvent2 events =
     List.foldl
         (\{ clientId, eventType } state ->
             case ( eventType, state.previousEvent ) of
-                ( KeyDown keyDown, Just (InputString input) ) ->
-                    case keyDown.targetId of
-                        Just targetId ->
-                            if targetId == input.targetId && state.previousClientId == clientId then
-                                { state
-                                    | previousEvent = InputString { input | text = addKeyToInputString keyDown input.text } |> Just
-                                    , previousClientId = clientId
-                                }
-
-                            else
-                                { previousEvent = InputString { targetId = targetId, text = keyDown.key } |> Just
-                                , previousClientId = clientId
-                                , rest = [ toEvent clientId (InputString input) ] ++ state.rest
-                                }
-
-                        Nothing ->
-                            { previousEvent = KeyDown2 keyDown |> Just
-                            , previousClientId = clientId
-                            , rest = [ toEvent clientId (InputString input) ] ++ state.rest
-                            }
-
-                ( KeyDown keyDown, _ ) ->
-                    { previousEvent =
-                        case keyDown.targetId of
-                            Just targetId ->
-                                InputString { targetId = targetId, text = addKeyToInputString keyDown "" } |> Just
-
-                            Nothing ->
-                                KeyDown2 keyDown |> Just
+                ( Input input, Just (Input2 _) ) ->
+                    { previousEvent = Input2 input |> Just
                     , previousClientId = clientId
-                    , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    , rest = state.rest
                     }
 
-                ( KeyUp _, Just (InputString _) ) ->
-                    state
+                ( Input input, _ ) ->
+                    { previousEvent = Input2 input |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( KeyDown keyDown, _ ) ->
+                    { previousEvent = KeyDown2 keyDown |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
 
                 ( KeyUp keyUp, _ ) ->
                     { previousEvent = KeyUp2 keyUp |> Just
                     , previousClientId = clientId
-                    , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
                 ( Connect connect, _ ) ->
                     { previousEvent = Connect2 connect |> Just
                     , previousClientId = clientId
-                    , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
                 ( Click mouseEvent, _ ) ->
                     { previousEvent = Click2 mouseEvent |> Just
                     , previousClientId = clientId
-                    , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
                 ( ClickLink linkEvent, _ ) ->
                     { previousEvent = ClickLink2 linkEvent |> Just
                     , previousClientId = clientId
-                    , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
                 ( Http httpEvent, _ ) ->
                     state
 
-                ( Paste pasteEvent, Just (InputString input) ) ->
+                ( Paste pasteEvent, Just (Input2 input) ) ->
                     case pasteEvent.targetId of
                         Just targetId ->
                             if targetId == input.targetId && state.previousClientId == clientId then
                                 { state
-                                    | previousEvent = InputString { input | text = input.text ++ pasteEvent.text } |> Just
+                                    | previousEvent = Input2 { input | text = input.text ++ pasteEvent.text } |> Just
                                     , previousClientId = clientId
                                 }
 
                             else
-                                { previousEvent = InputString { targetId = targetId, text = pasteEvent.text } |> Just
+                                { previousEvent = Input2 { targetId = targetId, text = pasteEvent.text } |> Just
                                 , previousClientId = clientId
-                                , rest = [ toEvent clientId (InputString input) ] ++ state.rest
+                                , rest = [ toEvent clientId (Input2 input) ] ++ state.rest
                                 }
 
                         Nothing ->
@@ -322,9 +283,9 @@ eventsToEvent2 events =
                 ( Paste pasteEvent, _ ) ->
                     case pasteEvent.targetId of
                         Just targetId ->
-                            { previousEvent = InputString { targetId = targetId, text = pasteEvent.text } |> Just
+                            { previousEvent = Input2 { targetId = targetId, text = pasteEvent.text } |> Just
                             , previousClientId = clientId
-                            , rest = maybeToList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                            , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                             }
 
                         Nothing ->
@@ -332,7 +293,7 @@ eventsToEvent2 events =
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
-        |> (\state -> maybeToList (Maybe.map (toEvent state.previousClientId) state.previousEvent) ++ state.rest)
+        |> (\state -> Maybe.Extra.toList (Maybe.map (toEvent state.previousClientId) state.previousEvent) ++ state.rest)
         |> List.reverse
 
 
@@ -358,8 +319,7 @@ codegen events =
                 (\event ->
                     case event.eventType of
                         Http http ->
-                            http
-                                |> Just
+                            { http | url = dropPrefix "http://localhost:8001/" http.url } |> Just
 
                         _ ->
                             Nothing
@@ -370,17 +330,9 @@ codegen events =
         httpRequestsText : String
         httpRequestsText =
             List.map
-                (\http ->
-                    "(\""
-                        ++ http.method
-                        ++ "_"
-                        ++ dropPrefix "http://localhost:8001/" http.url
-                        ++ "\", \""
-                        ++ http.filepath
-                        ++ "\")"
-                )
+                (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
                 httpRequests
-                |> String.join ", "
+                |> String.join "\n    , "
     in
     List.foldl
         (\event { code, indentation, clientCount } ->
@@ -420,20 +372,15 @@ codegen events =
 
                 KeyDown2 keyEvent ->
                     { code =
-                        case keyEvent.targetId of
-                            Just targetId ->
-                                code
-                                    ++ indent
-                                    ++ "    |> "
-                                    ++ client
-                                    ++ ".keyDownEvent "
-                                    ++ targetIdFunc targetId
-                                    ++ " { keyCode = "
-                                    ++ String.fromInt keyEvent.keyCode
-                                    ++ " }\n"
-
-                            Nothing ->
-                                code
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client
+                            ++ ".keyDownEvent "
+                            ++ targetIdFunc keyEvent.targetId
+                            ++ " { keyCode = "
+                            ++ String.fromInt keyEvent.keyCode
+                            ++ " }\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -486,7 +433,7 @@ codegen events =
                     , clientCount = clientCount
                     }
 
-                InputString { targetId, text } ->
+                Input2 { targetId, text } ->
                     { code = code ++ indent ++ "    |> " ++ client ++ ".inputText " ++ targetIdFunc targetId ++ " \"" ++ text ++ "\"\n"
                     , indentation = indentation
                     , clientCount = clientCount
@@ -725,6 +672,15 @@ eventsView events hiddenEvents =
 
                                         else
                                             String.left 7 pasteEvent.text ++ "..."
+                                       )
+
+                            Input inputEvent ->
+                                "text input "
+                                    ++ (if String.length inputEvent.text < 10 then
+                                            inputEvent.text
+
+                                        else
+                                            String.left 7 inputEvent.text ++ "..."
                                        )
                           )
                             |> Ui.text

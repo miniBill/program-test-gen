@@ -88,10 +88,15 @@ type EventType
     | Http HttpEvent
     | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
     | Paste PasteEvent
+    | Input InputEvent
+
+
+type alias InputEvent =
+    { targetId : String, text : String }
 
 
 type alias KeyEvent =
-    { targetId : Maybe String
+    { targetId : String
     , ctrlKey : Bool
     , shiftKey : Bool
     , metaKey : Bool
