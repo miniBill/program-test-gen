@@ -101,8 +101,8 @@ keyEventCodec =
         |> Codec.field "ctrlKey" .ctrlKey Codec.bool
         |> Codec.field "shiftKey" .shiftKey Codec.bool
         |> Codec.field "metaKey" .metaKey Codec.bool
+        |> Codec.field "altKey" .metaKey Codec.bool
         |> Codec.field "key" .key Codec.string
-        |> Codec.field "keyCode" .keyCode Codec.int
         |> Codec.buildObject
 
 

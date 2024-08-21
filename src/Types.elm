@@ -100,8 +100,8 @@ type alias KeyEvent =
     , ctrlKey : Bool
     , shiftKey : Bool
     , metaKey : Bool
+    , altKey : Bool
     , key : String
-    , keyCode : Int
     }
 
 

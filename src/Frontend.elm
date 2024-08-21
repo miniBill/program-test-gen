@@ -306,6 +306,15 @@ dropPrefix prefix text =
         text
 
 
+boolToString : Bool -> String
+boolToString bool =
+    if bool then
+        "True"
+
+    else
+        "False"
+
+
 codegen : List Event -> String
 codegen events =
     let
@@ -376,17 +385,42 @@ codegen events =
                             ++ indent
                             ++ "    |> "
                             ++ client
-                            ++ ".keyDownEvent "
+                            ++ ".keyDown "
                             ++ targetIdFunc keyEvent.targetId
-                            ++ " { keyCode = "
-                            ++ String.fromInt keyEvent.keyCode
+                            ++ " { key = \""
+                            ++ keyEvent.key
+                            ++ "\", shift = "
+                            ++ boolToString keyEvent.shiftKey
+                            ++ ", alt = "
+                            ++ boolToString keyEvent.altKey
+                            ++ ", ctrl = "
+                            ++ boolToString keyEvent.ctrlKey
+                            ++ ", meta = "
+                            ++ boolToString keyEvent.metaKey
                             ++ " }\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 KeyUp2 keyEvent ->
-                    { code = code
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client
+                            ++ ".keyUp "
+                            ++ targetIdFunc keyEvent.targetId
+                            ++ " { key = \""
+                            ++ keyEvent.key
+                            ++ "\", shift = "
+                            ++ boolToString keyEvent.shiftKey
+                            ++ ", alt = "
+                            ++ boolToString keyEvent.altKey
+                            ++ ", ctrl = "
+                            ++ boolToString keyEvent.ctrlKey
+                            ++ ", meta = "
+                            ++ boolToString keyEvent.metaKey
+                            ++ " }\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
