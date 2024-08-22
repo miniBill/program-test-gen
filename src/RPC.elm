@@ -4,7 +4,6 @@ import Array
 import AssocList
 import AssocSet
 import Codec exposing (Codec)
-import Dict
 import Frontend
 import Json.Decode
 import Json.Encode
@@ -45,7 +44,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder inputEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -70,6 +69,9 @@ eventTypeCodec =
 
                 Types.Input arg0 ->
                     inputEncoder arg0
+
+                Types.ResetBackend ->
+                    resetBackendEncoder
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -91,6 +93,7 @@ eventTypeCodec =
             )
         |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
         |> Codec.variant1 "Input" Types.Input inputEventCodec
+        |> Codec.variant0 "ResetBackend" Types.ResetBackend
         |> Codec.buildCustom
 
 
@@ -152,10 +155,6 @@ lamdera_handleEndpoints :
     -> BackendModel
     -> ( LamderaRPC.RPCResult, BackendModel, Cmd BackendMsg )
 lamdera_handleEndpoints _ args model =
-    let
-        _ =
-            Debug.log "endpoint" args
-    in
     case args.endpoint of
         "event" ->
             case args.body of
@@ -172,7 +171,7 @@ lamdera_handleEndpoints _ args model =
                                                 (\maybeSession ->
                                                     (case maybeSession of
                                                         Just session ->
-                                                            { session | history = Frontend.addEvent event session.history }
+                                                            Frontend.addEvent event session
 
                                                         Nothing ->
                                                             { history = Array.fromList [ event ]

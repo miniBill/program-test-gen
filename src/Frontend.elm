@@ -135,21 +135,66 @@ updateLoaded msg model =
             ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
 
 
-addEvent : Event -> Array Event -> Array Event
-addEvent event events =
-    case Array.get (Array.length events - 1) events of
-        Just last ->
-            if event.timestamp - last.timestamp < 0 then
-                Array.push event events
-                    |> Array.toList
-                    |> List.sortBy .timestamp
-                    |> Array.fromList
+addEvent : Event -> { a | history : Array Event, hiddenEvents : Set Int } -> { a | history : Array Event, hiddenEvents : Set Int }
+addEvent event model =
+    let
+        array : Array { timestamp : Int, eventType : EventType, clientId : ClientId }
+        array =
+            case Array.get (Array.length model.history - 1) model.history of
+                Just last ->
+                    if event.timestamp - last.timestamp < 0 then
+                        Array.push event model.history
+                            |> Array.toList
+                            |> List.sortBy .timestamp
+                            |> Array.fromList
+
+                    else
+                        Array.push event model.history
+
+                Nothing ->
+                    Array.push event model.history
+    in
+    { model
+        | hiddenEvents =
+            case ( event.eventType, arrayIndexOf event array ) of
+                ( KeyUp keyEvent, Just index ) ->
+                    if shouldHideKeyEvent keyEvent then
+                        model.hiddenEvents
+
+                    else
+                        Set.insert index model.hiddenEvents
+
+                ( KeyDown keyEvent, Just index ) ->
+                    if shouldHideKeyEvent keyEvent then
+                        model.hiddenEvents
+
+                    else
+                        Set.insert index model.hiddenEvents
+
+                _ ->
+                    model.hiddenEvents
+        , history = array
+    }
+
+
+shouldHideKeyEvent : KeyEvent -> Bool
+shouldHideKeyEvent keyEvent =
+    String.length keyEvent.key > 1 || keyEvent.key == "Shift" || keyEvent.key == "Backspace" || keyEvent.altKey || keyEvent.ctrlKey || keyEvent.metaKey
+
+
+arrayIndexOf : a -> Array a -> Maybe Int
+arrayIndexOf item array =
+    Array.foldl
+        (\item2 state ->
+            if item2 == item then
+                { index = state.index + 1, found = Just state.index }
 
             else
-                Array.push event events
-
-        Nothing ->
-            Array.push event events
+                { index = state.index + 1, found = state.found }
+        )
+        { index = 0, found = Nothing }
+        array
+        |> .found
 
 
 updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
@@ -175,7 +220,7 @@ updateFromBackend msg model =
         SessionUpdate event ->
             case model of
                 LoadedSession loaded ->
-                    ( LoadedSession { loaded | history = Array.push event loaded.history }
+                    ( LoadedSession (addEvent event loaded)
                     , Browser.Dom.setViewportOf eventsListContainer 0 99999
                         |> Task.attempt (\_ -> ScrolledToBottom)
                     )
@@ -290,6 +335,9 @@ eventsToEvent2 events =
 
                         Nothing ->
                             state
+
+                ( ResetBackend, _ ) ->
+                    state
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -716,6 +764,9 @@ eventsView events hiddenEvents =
                                         else
                                             String.left 7 inputEvent.text ++ "..."
                                        )
+
+                            ResetBackend ->
+                                "test ended"
                           )
                             |> Ui.text
                         ]

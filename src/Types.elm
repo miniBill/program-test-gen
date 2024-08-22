@@ -89,6 +89,7 @@ type EventType
     | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
     | Paste PasteEvent
     | Input InputEvent
+    | ResetBackend
 
 
 type alias InputEvent =
