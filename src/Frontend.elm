@@ -304,7 +304,7 @@ eventsToEvent2 events =
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
-                ( Http httpEvent, _ ) ->
+                ( Http _, _ ) ->
                     state
 
                 ( Paste pasteEvent, Just (Input2 input) ) ->
@@ -384,13 +384,16 @@ codegen events =
                 events
                 |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
 
-        httpRequestsText : String
-        httpRequestsText =
-            List.map
-                (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
-                httpRequests
-                |> String.join "\n    , "
+        tests =
+            List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
+                |> List.indexedMap (\index ( head, rest ) -> testCode clients index (head :: rest))
+                |> String.join "\n    ,"
     in
+    setupCode httpRequests ++ tests ++ "\n    ]"
+
+
+testCode : List ClientId -> Int -> List Event -> String
+testCode clients testIndex events =
     List.foldl
         (\event { code, indentation, clientCount } ->
             let
@@ -521,8 +524,25 @@ codegen events =
                     , clientCount = clientCount
                     }
         )
-        { code =
-            """module MyTests exposing (main, setup, tests)
+        { code = " TF.start (config httpData) \"test " ++ String.fromInt testIndex ++ "\"\n"
+        , indentation = 0
+        , clientCount = 0
+        }
+        (eventsToEvent2 events)
+        |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
+
+
+setupCode : List { a | method : String, url : String, filepath : String } -> String
+setupCode httpRequests =
+    let
+        httpRequestsText : String
+        httpRequestsText =
+            List.map
+                (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
+                httpRequests
+                |> String.join "\n    , "
+    in
+    """module MyTests exposing (main, setup, tests)
 
 import Effect.Browser.Dom as Dom
 import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
@@ -566,25 +586,25 @@ handleFileRequest _ =
     UnhandledFileUpload
 
 httpRequests : Dict String String
-httpRequests = 
+httpRequests =
     [ """
-                ++ httpRequestsText
-                ++ """
-    ] 
+        ++ httpRequestsText
+        ++ """
+    ]
         |> Dict.fromList
 
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
 handleHttpRequests httpData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
-        Just filepath -> 
-            case Dict.get filepath httpData of 
-                Just data -> 
+        Just filepath ->
+            case Dict.get filepath httpData of
+                Just data ->
                     BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
-                
-                Nothing -> 
+
+                Nothing ->
                     UnhandledHttpRequest
-            
+
         Nothing ->
             UnhandledHttpRequest
 
@@ -596,13 +616,7 @@ handleMultiFileUpload _ =
 
 tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests httpData =
-    [ TF.start (config httpData) "MyTest"
-    """
-        , indentation = 0
-        , clientCount = 0
-        }
-        (eventsToEvent2 events)
-        |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")" ++ "\n    ]")
+    ["""
 
 
 targetIdFunc : String -> String
@@ -768,6 +782,8 @@ eventsView events hiddenEvents =
                             ResetBackend ->
                                 "test ended"
                           )
+                            ++ " "
+                            ++ String.fromInt event.timestamp
                             |> Ui.text
                         ]
                 )
