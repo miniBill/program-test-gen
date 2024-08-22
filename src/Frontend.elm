@@ -1,6 +1,7 @@
 port module Frontend exposing (..)
 
 import Array exposing (Array)
+import Array.Extra
 import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
@@ -117,97 +118,73 @@ updateLoaded msg model =
             ( model, Cmd.none )
 
         PressedSetEventVisibility index isHidden ->
-            ( { model
-                | hiddenEvents =
-                    if isHidden then
-                        Set.insert index model.hiddenEvents
-
-                    else
-                        Set.remove index model.hiddenEvents
-              }
+            ( { model | history = Array.Extra.update index (\event -> { event | isHidden = isHidden }) model.history }
             , SetEventVisibilityRequest { index = index, isHidden = isHidden } |> Lamdera.sendToBackend
             )
 
         PressedCopyCode ->
-            ( { model | copyCounter = model.copyCounter + 1 }, copy_to_clipboard_to_js (codegen (Array.toList model.history)) )
+            ( { model | copyCounter = model.copyCounter + 1 }
+            , Array.toList model.history |> List.filter (\event -> not event.isHidden) |> codegen |> copy_to_clipboard_to_js
+            )
 
         ElmUiMsg msg2 ->
             ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
 
 
-addEvent : Event -> { a | history : Array Event, hiddenEvents : Set Int } -> { a | history : Array Event, hiddenEvents : Set Int }
+addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
 addEvent event model =
     let
-        array : Array { timestamp : Int, eventType : EventType, clientId : ClientId }
-        array =
+        event2 : Event
+        event2 =
+            { event
+                | isHidden =
+                    case event.eventType of
+                        KeyUp keyEvent ->
+                            shouldHideKeyEvent keyEvent
+
+                        KeyDown keyEvent ->
+                            shouldHideKeyEvent keyEvent
+
+                        _ ->
+                            False
+            }
+    in
+    { model
+        | history =
             case Array.get (Array.length model.history - 1) model.history of
                 Just last ->
-                    if event.timestamp - last.timestamp < 0 then
-                        Array.push event model.history
+                    if event2.timestamp - last.timestamp < 0 then
+                        Array.push event2 model.history
                             |> Array.toList
                             |> List.sortBy .timestamp
                             |> Array.fromList
 
                     else
-                        Array.push event model.history
+                        Array.push event2 model.history
 
                 Nothing ->
-                    Array.push event model.history
-    in
-    { model
-        | hiddenEvents =
-            case ( event.eventType, arrayIndexOf event array ) of
-                ( KeyUp keyEvent, Just index ) ->
-                    if shouldHideKeyEvent keyEvent then
-                        model.hiddenEvents
-
-                    else
-                        Set.insert index model.hiddenEvents
-
-                ( KeyDown keyEvent, Just index ) ->
-                    if shouldHideKeyEvent keyEvent then
-                        model.hiddenEvents
-
-                    else
-                        Set.insert index model.hiddenEvents
-
-                _ ->
-                    model.hiddenEvents
-        , history = array
+                    Array.push event2 model.history
     }
 
 
 shouldHideKeyEvent : KeyEvent -> Bool
 shouldHideKeyEvent keyEvent =
-    String.length keyEvent.key > 1 || keyEvent.key == "Shift" || keyEvent.key == "Backspace" || keyEvent.altKey || keyEvent.ctrlKey || keyEvent.metaKey
-
-
-arrayIndexOf : a -> Array a -> Maybe Int
-arrayIndexOf item array =
-    Array.foldl
-        (\item2 state ->
-            if item2 == item then
-                { index = state.index + 1, found = Just state.index }
-
-            else
-                { index = state.index + 1, found = state.found }
-        )
-        { index = 0, found = Nothing }
-        array
-        |> .found
+    (String.length keyEvent.key == 1 || keyEvent.key == "Shift" || keyEvent.key == "Backspace")
+        && not keyEvent.altKey
+        && not keyEvent.ctrlKey
+        && not keyEvent.metaKey
 
 
 updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
     case msg of
-        LoadSessionResponse events hiddenEvents ->
+        LoadSessionResponse events ->
             case model of
                 LoadingSession loading ->
                     ( LoadedSession
                         { key = loading.key
                         , sessionName = loading.sessionName
                         , history = events
-                        , hiddenEvents = hiddenEvents
                         , copyCounter = 0
                         , elmUiState = Ui.Anim.init
                         }
@@ -231,7 +208,7 @@ updateFromBackend msg model =
         ResetSession ->
             case model of
                 LoadedSession loaded ->
-                    ( LoadedSession { loaded | history = Array.empty, hiddenEvents = Set.empty }, Cmd.none )
+                    ( LoadedSession { loaded | history = Array.empty }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -650,7 +627,7 @@ view model =
                         [ Ui.column
                             [ Ui.height Ui.fill, Ui.width Ui.shrink, Ui.spacing 8 ]
                             [ button PressedResetSession [ Ui.text "Reset" ]
-                            , eventsView eventsList loaded.hiddenEvents
+                            , eventsView eventsList
                             ]
                         , Ui.column
                             [ Ui.height Ui.fill, Ui.spacing 8 ]
@@ -668,15 +645,7 @@ view model =
                                   else
                                     Ui.none
                                 ]
-                            , List.indexedMap Tuple.pair eventsList
-                                |> List.filterMap
-                                    (\( index, event ) ->
-                                        if Set.member index loaded.hiddenEvents then
-                                            Nothing
-
-                                        else
-                                            Just event
-                                    )
+                            , List.filter (\event -> not event.isHidden) eventsList
                                 |> codegen
                                 |> Ui.text
                                 |> Ui.el
@@ -707,8 +676,8 @@ button msg content =
         content
 
 
-eventsView : List Event -> Set Int -> Ui.Element FrontendMsg
-eventsView events hiddenEvents =
+eventsView : List Event -> Ui.Element FrontendMsg
+eventsView events =
     case events of
         [] ->
             Ui.el [ Ui.width (Ui.px 300) ] (Ui.text "No events have arrived")
@@ -716,23 +685,18 @@ eventsView events hiddenEvents =
         _ ->
             List.indexedMap
                 (\index event ->
-                    let
-                        isHidden : Bool
-                        isHidden =
-                            Set.member index hiddenEvents
-                    in
                     Ui.row
-                        [ Ui.Input.button (PressedSetEventVisibility index (not isHidden))
+                        [ Ui.Input.button (PressedSetEventVisibility index (not event.isHidden))
                         , Ui.spacing 4
                         , Ui.Font.color
-                            (if isHidden then
+                            (if event.isHidden then
                                 Ui.rgb 120 120 120
 
                              else
                                 Ui.rgb 0 0 0
                             )
                         ]
-                        [ if isHidden then
+                        [ if event.isHidden then
                             Icons.eyeClosed
 
                           else

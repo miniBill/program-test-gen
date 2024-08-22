@@ -24,7 +24,6 @@ type alias LoadedData =
     { key : Key
     , sessionName : SessionName
     , history : Array Event
-    , hiddenEvents : Set Int
     , copyCounter : Int
     , elmUiState : Ui.Anim.State
     }
@@ -38,7 +37,6 @@ type alias BackendModel =
 type alias Session =
     { history : Array Event
     , connections : AssocSet.Set ClientId
-    , hiddenEvents : Set Int
     }
 
 
@@ -68,13 +66,14 @@ type BackendMsg
 
 
 type ToFrontend
-    = LoadSessionResponse (Array Event) (Set Int)
+    = LoadSessionResponse (Array Event)
     | SessionUpdate Event
     | ResetSession
 
 
 type alias Event =
-    { timestamp : Int
+    { isHidden : Bool
+    , timestamp : Int
     , eventType : EventType
     , clientId : ClientId
     }

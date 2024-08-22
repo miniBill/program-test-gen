@@ -34,7 +34,7 @@ sessionNameCodec =
 
 eventCodec : Codec Event
 eventCodec =
-    Codec.object Event
+    Codec.object (Event False)
         |> Codec.field "timestamp" .timestamp Codec.int
         |> Codec.field "eventType" .eventType eventTypeCodec
         |> Codec.field "clientId" .clientId Codec.string
@@ -176,7 +176,6 @@ lamdera_handleEndpoints _ args model =
                                                         Nothing ->
                                                             { history = Array.fromList [ event ]
                                                             , connections = AssocSet.empty
-                                                            , hiddenEvents = Set.empty
                                                             }
                                                     )
                                                         |> Just

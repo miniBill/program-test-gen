@@ -1,6 +1,7 @@
 module Backend exposing (..)
 
 import Array
+import Array.Extra
 import AssocList
 import AssocSet
 import Lamdera exposing (ClientId, SessionId)
@@ -55,7 +56,7 @@ updateFromFrontend sessionId clientId msg model =
                                 }
                                 model.sessions
                       }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history session.hiddenEvents)
+                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
                     )
 
                 Nothing ->
@@ -64,11 +65,10 @@ updateFromFrontend sessionId clientId msg model =
                         session =
                             { history = Array.empty
                             , connections = AssocSet.singleton clientId
-                            , hiddenEvents = Set.empty
                             }
                     in
                     ( { model | sessions = AssocList.insert sessionName session model.sessions }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history session.hiddenEvents)
+                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
                     )
 
         ResetSessionRequest ->
@@ -80,7 +80,7 @@ updateFromFrontend sessionId clientId msg model =
                                 | sessions =
                                     AssocList.insert
                                         sessionName
-                                        { session | history = Array.empty, hiddenEvents = Set.empty }
+                                        { session | history = Array.empty }
                                         model.sessions
                             }
                     in
@@ -99,12 +99,7 @@ updateFromFrontend sessionId clientId msg model =
                             AssocList.insert
                                 sessionName
                                 { session
-                                    | hiddenEvents =
-                                        if isHidden then
-                                            Set.insert index session.hiddenEvents
-
-                                        else
-                                            Set.remove index session.hiddenEvents
+                                    | history = Array.Extra.update index (\event -> { event | isHidden = isHidden }) session.history
                                 }
                                 model.sessions
                       }
