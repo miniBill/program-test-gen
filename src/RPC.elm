@@ -44,34 +44,37 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder linkEncoder httpEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder value ->
+        (\a b c d e f g h i j value ->
             case value of
                 Types.KeyDown arg0 ->
-                    keyDownEncoder arg0
+                    a arg0
 
                 Types.KeyUp arg0 ->
-                    keyUpEncoder arg0
+                    b arg0
 
                 Types.Click arg0 ->
-                    clickEncoder arg0
+                    c arg0
 
                 Types.ClickLink arg0 ->
-                    linkEncoder arg0
+                    d arg0
 
                 Types.Http arg0 ->
-                    httpEncoder arg0
+                    e arg0
 
                 Types.Connect arg0 ->
-                    connectEncoder arg0
+                    f arg0
 
                 Types.Paste arg0 ->
-                    pasteEncoder arg0
+                    g arg0
 
                 Types.Input arg0 ->
-                    inputEncoder arg0
+                    h arg0
 
                 Types.ResetBackend ->
-                    resetBackendEncoder
+                    i
+
+                Types.FromJsPort arg0 ->
+                    j arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -94,6 +97,7 @@ eventTypeCodec =
         |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
         |> Codec.variant1 "Input" Types.Input inputEventCodec
         |> Codec.variant0 "ResetBackend" Types.ResetBackend
+        |> Codec.variant1 "FromJsPort" Types.FromJsPort fromJsPortEventCodec
         |> Codec.buildCustom
 
 
@@ -129,6 +133,15 @@ inputEventCodec =
     Codec.object Types.InputEvent
         |> Codec.field "targetId" .targetId Codec.string
         |> Codec.field "text" .text Codec.string
+        |> Codec.buildObject
+
+
+fromJsPortEventCodec : Codec Types.FromJsPortEvent
+fromJsPortEventCodec =
+    Codec.object Types.FromJsPortEvent
+        |> Codec.nullableField "triggeredFromPort" .triggeredFromPort Codec.string
+        |> Codec.field "port" .port_ Codec.string
+        |> Codec.field "data" .data Codec.string
         |> Codec.buildObject
 
 

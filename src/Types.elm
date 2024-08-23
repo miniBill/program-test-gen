@@ -89,6 +89,11 @@ type EventType
     | Paste PasteEvent
     | Input InputEvent
     | ResetBackend
+    | FromJsPort FromJsPortEvent
+
+
+type alias FromJsPortEvent =
+    { triggeredFromPort : Maybe String, port_ : String, data : String }
 
 
 type alias InputEvent =

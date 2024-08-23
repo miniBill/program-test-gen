@@ -12,7 +12,6 @@ import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Maybe.Extra
 import Random
-import Set exposing (Set)
 import Sha256
 import Task
 import Types exposing (..)
@@ -226,6 +225,7 @@ type EventType2
     | Connect2 { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
     | KeyUp2 KeyEvent
     | KeyDown2 KeyEvent
+    | FromJsPort2 FromJsPortEvent
 
 
 eventsToEvent2 : List Event -> List { eventType : EventType2, clientId : ClientId }
@@ -315,6 +315,12 @@ eventsToEvent2 events =
 
                 ( ResetBackend, _ ) ->
                     state
+
+                ( FromJsPort fromJsPort, _ ) ->
+                    { previousEvent = FromJsPort2 fromJsPort |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -347,26 +353,12 @@ codegen events =
         clients =
             List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
 
-        httpRequests : List HttpEvent
-        httpRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        Http http ->
-                            { http | url = dropPrefix "http://localhost:8001/" http.url } |> Just
-
-                        _ ->
-                            Nothing
-                )
-                events
-                |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
-
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
                 |> List.indexedMap (\index ( head, rest ) -> testCode clients index (head :: rest))
                 |> String.join "\n    ,"
     in
-    setupCode httpRequests ++ tests ++ "\n    ]"
+    setupCode events ++ tests ++ "\n    ]"
 
 
 testCode : List ClientId -> Int -> List Event -> String
@@ -500,6 +492,12 @@ testCode clients testIndex events =
                     , indentation = indentation
                     , clientCount = clientCount
                     }
+
+                FromJsPort2 _ ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
         )
         { code = " TF.start (config httpData) \"test " ++ String.fromInt testIndex ++ "\"\n"
         , indentation = 0
@@ -509,15 +507,60 @@ testCode clients testIndex events =
         |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
 
 
-setupCode : List { a | method : String, url : String, filepath : String } -> String
-setupCode httpRequests =
+setupCode : List Event -> String
+setupCode events =
     let
-        httpRequestsText : String
-        httpRequestsText =
-            List.map
-                (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
-                httpRequests
+        httpRequests : String
+        httpRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        Http http ->
+                            { http | url = dropPrefix "http://localhost:8001/" http.url } |> Just
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
+                |> List.map (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
                 |> String.join "\n    , "
+
+        portRequests : String
+        portRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        FromJsPort fromJsPort ->
+                            case fromJsPort.triggeredFromPort of
+                                Just trigger ->
+                                    Just { triggeredFromPort = trigger, port_ = fromJsPort.port_, data = fromJsPort.data }
+
+                                Nothing ->
+                                    Nothing
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
+                |> List.map
+                    (\fromJsPort ->
+                        "        \""
+                            ++ fromJsPort.triggeredFromPort
+                            ++ "\" ->\n"
+                            ++ "            Just (\""
+                            ++ fromJsPort.port_
+                            ++ "\", stringToJson "
+                            ++ (if String.contains "\"" fromJsPort.data then
+                                    "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
+
+                                else
+                                    "\"" ++ fromJsPort.data ++ "\""
+                               )
+                            ++ ")\n\n"
+                    )
+                |> String.concat
     in
     """module MyTests exposing (main, setup, tests)
 
@@ -532,6 +575,8 @@ import Dict exposing (Dict)
 import Effect.Lamdera
 import Json.Decode
 import Set exposing (Set)
+import Json.Decode
+import Json.Encode
 
 setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
@@ -553,19 +598,29 @@ config httpData =
     TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
 
 
+stringToJson : String -> Json.Encode.Value
+stringToJson json =
+    Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
+
+
 handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
-    Nothing
+    case currentRequest of 
+"""
+        ++ portRequests
+        ++ """        _ ->
+            Nothing
 
 
 handleFileRequest : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> FileUpload
 handleFileRequest _ =
     UnhandledFileUpload
 
+
 httpRequests : Dict String String
 httpRequests =
     [ """
-        ++ httpRequestsText
+        ++ httpRequests
         ++ """
     ]
         |> Dict.fromList
@@ -726,28 +781,17 @@ eventsView events =
                                 "clicked link to " ++ linkEvent.path
 
                             Paste pasteEvent ->
-                                "pasted text "
-                                    ++ (if String.length pasteEvent.text < 10 then
-                                            pasteEvent.text
-
-                                        else
-                                            String.left 7 pasteEvent.text ++ "..."
-                                       )
+                                "pasted text " ++ ellipsis pasteEvent.text
 
                             Input inputEvent ->
-                                "text input "
-                                    ++ (if String.length inputEvent.text < 10 then
-                                            inputEvent.text
-
-                                        else
-                                            String.left 7 inputEvent.text ++ "..."
-                                       )
+                                "text input " ++ ellipsis inputEvent.text
 
                             ResetBackend ->
                                 "test ended"
+
+                            FromJsPort fromJsPortEvent ->
+                                "port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
                           )
-                            ++ " "
-                            ++ String.fromInt event.timestamp
                             |> Ui.text
                         ]
                 )
@@ -759,3 +803,12 @@ eventsView events =
                     , Ui.Font.size 14
                     , Ui.id eventsListContainer
                     ]
+
+
+ellipsis : String -> String
+ellipsis text =
+    if String.length text < 10 then
+        text
+
+    else
+        String.left 7 text ++ "..."
