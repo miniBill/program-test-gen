@@ -605,7 +605,7 @@ stringToJson json =
 
 handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
-    case currentRequest of 
+    case currentRequest.portName of
 """
         ++ portRequests
         ++ """        _ ->
