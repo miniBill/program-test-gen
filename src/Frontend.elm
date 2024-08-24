@@ -227,6 +227,7 @@ type EventType2
     | KeyUp2 KeyEvent
     | KeyDown2 KeyEvent
     | FromJsPort2 FromJsPortEvent
+    | WindowResize2 WindowResizeEvent
 
 
 eventsToEvent2 : List Event -> List { eventType : EventType2, clientId : ClientId }
@@ -325,6 +326,12 @@ eventsToEvent2 events =
                     , previousClientId = clientId
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
+
+                ( WindowResize resizeEvent, _ ) ->
+                    { previousEvent = WindowResize2 resizeEvent |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -402,6 +409,21 @@ testCode clients testIndex events =
                             ++ (indent ++ "            " ++ state ++ "\n")
                     , indentation = indentation + 1
                     , clientCount = clientCount + 1
+                    }
+
+                WindowResize2 resizeEvent ->
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client
+                            ++ ".resizeWindow { width = "
+                            ++ String.fromInt resizeEvent.width
+                            ++ ", height = "
+                            ++ String.fromInt resizeEvent.height
+                            ++ " }\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
                     }
 
                 KeyDown2 keyEvent ->
@@ -829,6 +851,9 @@ eventsView events =
 
                             HttpLocal { filepath } ->
                                 "loaded " ++ filepath
+
+                            WindowResize { width, height } ->
+                                "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
                           )
                             |> Ui.text
                         ]

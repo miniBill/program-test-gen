@@ -91,6 +91,11 @@ type EventType
     | Input InputEvent
     | ResetBackend
     | FromJsPort FromJsPortEvent
+    | WindowResize WindowResizeEvent
+
+
+type alias WindowResizeEvent =
+    { width : Int, height : Int }
 
 
 type alias HttpLocalEvent =

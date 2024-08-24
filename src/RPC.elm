@@ -44,7 +44,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\a b c d e f g h i j k value ->
+        (\a b c d e f g h i j k l value ->
             case value of
                 Types.KeyDown arg0 ->
                     a arg0
@@ -78,6 +78,9 @@ eventTypeCodec =
 
                 Types.HttpLocal arg0 ->
                     k arg0
+
+                Types.WindowResize arg0 ->
+                    l arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -102,6 +105,7 @@ eventTypeCodec =
         |> Codec.variant0 "ResetBackend" Types.ResetBackend
         |> Codec.variant1 "FromJsPort" Types.FromJsPort fromJsPortEventCodec
         |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
+        |> Codec.variant1 "WindowResize" Types.WindowResize windowResizeEventCodec
         |> Codec.buildCustom
 
 
@@ -153,6 +157,14 @@ httpLocalEventCodec : Codec Types.HttpLocalEvent
 httpLocalEventCodec =
     Codec.object Types.HttpLocalEvent
         |> Codec.field "filepath" .filepath Codec.string
+        |> Codec.buildObject
+
+
+windowResizeEventCodec : Codec Types.WindowResizeEvent
+windowResizeEventCodec =
+    Codec.object Types.WindowResizeEvent
+        |> Codec.field "width" .width Codec.int
+        |> Codec.field "height" .height Codec.int
         |> Codec.buildObject
 
 
