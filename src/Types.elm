@@ -85,11 +85,16 @@ type EventType
     | Click MouseEvent
     | ClickLink LinkEvent
     | Http HttpEvent
+    | HttpLocal HttpLocalEvent
     | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
     | Paste PasteEvent
     | Input InputEvent
     | ResetBackend
     | FromJsPort FromJsPortEvent
+
+
+type alias HttpLocalEvent =
+    { filepath : String }
 
 
 type alias FromJsPortEvent =

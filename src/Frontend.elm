@@ -12,6 +12,7 @@ import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Maybe.Extra
 import Random
+import Set
 import Sha256
 import Task
 import Types exposing (..)
@@ -284,6 +285,9 @@ eventsToEvent2 events =
                 ( Http _, _ ) ->
                     state
 
+                ( HttpLocal _, _ ) ->
+                    state
+
                 ( Paste pasteEvent, Just (Input2 input) ) ->
                     case pasteEvent.targetId of
                         Just targetId ->
@@ -355,6 +359,7 @@ codegen events =
 
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
+                |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
                 |> List.indexedMap (\index ( head, rest ) -> testCode clients index (head :: rest))
                 |> String.join "\n    ,"
     in
@@ -499,7 +504,7 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
         )
-        { code = " TF.start (config httpData) \"test " ++ String.fromInt testIndex ++ "\"\n"
+        { code = " TF.start (config httpData localData) \"test " ++ String.fromInt testIndex ++ "\"\n"
         , indentation = 0
         , clientCount = 0
         }
@@ -524,6 +529,23 @@ setupCode events =
                 events
                 |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
                 |> List.map (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
+                |> String.join "\n    , "
+
+        localRequests : String
+        localRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        HttpLocal { filepath } ->
+                            Just filepath
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> Set.fromList
+                |> Set.toList
+                |> List.map (\filepath -> "\"" ++ filepath ++ "\"")
                 |> String.join "\n    , "
 
         portRequests : String
@@ -574,7 +596,6 @@ import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, Backen
 import Dict exposing (Dict)
 import Effect.Lamdera
 import Json.Decode
-import Set exposing (Set)
 import Json.Decode
 import Json.Encode
 
@@ -582,6 +603,7 @@ setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel
 setup =
     TF.viewerWith tests
         |> TF.addBytesFiles (Dict.values httpRequests)
+        |> TF.addBytesFiles localRequests
 
 
 main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
@@ -593,9 +615,9 @@ domain : Url
 domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
 
 
-config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
-config httpData =
-    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
+config : Dict String Bytes -> Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
+config httpData localData =
+    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData localData) handlePortToJs handleFileRequest handleMultiFileUpload domain
 
 
 stringToJson : String -> Json.Encode.Value
@@ -626,8 +648,16 @@ httpRequests =
         |> Dict.fromList
 
 
-handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
-handleHttpRequests httpData { currentRequest } =
+localRequests : List String
+localRequests =
+    [ """
+        ++ localRequests
+        ++ """
+    ]
+
+
+handleHttpRequests : Dict String Bytes -> Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
+handleHttpRequests httpData localData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
         Just filepath ->
             case Dict.get filepath httpData of
@@ -638,7 +668,12 @@ handleHttpRequests httpData { currentRequest } =
                     UnhandledHttpRequest
 
         Nothing ->
-            UnhandledHttpRequest
+            case Dict.get currentRequest.url localData of
+                Just data ->
+                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
+
+                Nothing ->
+                    UnhandledHttpRequest
 
 
 handleMultiFileUpload : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> MultipleFilesUpload
@@ -646,8 +681,8 @@ handleMultiFileUpload _ =
     UnhandledMultiFileUpload
 
 
-tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests httpData =
+tests : Dict String Bytes -> Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests httpData localData =
     ["""
 
 
@@ -791,6 +826,9 @@ eventsView events =
 
                             FromJsPort fromJsPortEvent ->
                                 "port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
+
+                            HttpLocal { filepath } ->
+                                "loaded " ++ filepath
                           )
                             |> Ui.text
                         ]

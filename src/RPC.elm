@@ -44,7 +44,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\a b c d e f g h i j value ->
+        (\a b c d e f g h i j k value ->
             case value of
                 Types.KeyDown arg0 ->
                     a arg0
@@ -75,6 +75,9 @@ eventTypeCodec =
 
                 Types.FromJsPort arg0 ->
                     j arg0
+
+                Types.HttpLocal arg0 ->
+                    k arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -98,6 +101,7 @@ eventTypeCodec =
         |> Codec.variant1 "Input" Types.Input inputEventCodec
         |> Codec.variant0 "ResetBackend" Types.ResetBackend
         |> Codec.variant1 "FromJsPort" Types.FromJsPort fromJsPortEventCodec
+        |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
         |> Codec.buildCustom
 
 
@@ -142,6 +146,13 @@ fromJsPortEventCodec =
         |> Codec.nullableField "triggeredFromPort" .triggeredFromPort Codec.string
         |> Codec.field "port" .port_ Codec.string
         |> Codec.field "data" .data Codec.string
+        |> Codec.buildObject
+
+
+httpLocalEventCodec : Codec Types.HttpLocalEvent
+httpLocalEventCodec =
+    Codec.object Types.HttpLocalEvent
+        |> Codec.field "filepath" .filepath Codec.string
         |> Codec.buildObject
 
 
