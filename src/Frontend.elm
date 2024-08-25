@@ -223,7 +223,7 @@ type EventType2
     = Input2 { targetId : String, text : String }
     | Click2 MouseEvent
     | ClickLink2 LinkEvent
-    | Connect2 { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
+    | Connect2 ConnectEvent
     | KeyUp2 KeyEvent
     | KeyDown2 KeyEvent
     | FromJsPort2 FromJsPortEvent
@@ -590,10 +590,9 @@ setupCode events =
                 |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
                 |> List.map
                     (\fromJsPort ->
-                        "        \""
+                        "        (\""
                             ++ fromJsPort.triggeredFromPort
-                            ++ "\" ->\n"
-                            ++ "            Just (\""
+                            ++ "\", (\""
                             ++ fromJsPort.port_
                             ++ "\", stringToJson "
                             ++ (if String.contains "\"" fromJsPort.data then
@@ -602,9 +601,9 @@ setupCode events =
                                 else
                                     "\"" ++ fromJsPort.data ++ "\""
                                )
-                            ++ ")\n\n"
+                            ++ "))"
                     )
-                |> String.concat
+                |> String.join "\n    , "
     in
     """module MyTests exposing (main, setup, tests)
 
@@ -649,11 +648,17 @@ stringToJson json =
 
 handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
-    case currentRequest.portName of
-"""
+    Dict.get currentRequest.portName portRequests
+
+
+{-| Please don't modify or rename this function -}
+portRequests : Dict String (String, Json.Encode.Value)
+portRequests =
+    [ """
         ++ portRequests
-        ++ """        _ ->
-            Nothing
+        ++ """
+    ]
+        |> Dict.fromList
 
 
 handleFileRequest : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> FileUpload
@@ -661,6 +666,7 @@ handleFileRequest _ =
     UnhandledFileUpload
 
 
+{-| Please don't modify or rename this function -}
 httpRequests : Dict String String
 httpRequests =
     [ """
@@ -670,6 +676,7 @@ httpRequests =
         |> Dict.fromList
 
 
+{-| Please don't modify or rename this function -}
 localRequests : List String
 localRequests =
     [ """
@@ -703,6 +710,7 @@ handleMultiFileUpload _ =
     UnhandledMultiFileUpload
 
 
+{-| Please don't rename this function (you can modify existing tests or add new ones though) -}
 tests : Dict String Bytes -> Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests httpData localData =
     ["""

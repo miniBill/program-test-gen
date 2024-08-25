@@ -87,19 +87,7 @@ eventTypeCodec =
         |> Codec.variant1 "Click" Types.Click mouseEventCodec
         |> Codec.variant1 "ClickLink" Types.ClickLink linkEventCodec
         |> Codec.variant1 "Http" Types.Http httpEventCodec
-        |> Codec.variant1
-            "Connect"
-            Types.Connect
-            (Codec.object
-                (\url sessionId windowWidth windowHeight ->
-                    { url = url, sessionId = sessionId, windowWidth = windowWidth, windowHeight = windowHeight }
-                )
-                |> Codec.field "url" .url Codec.string
-                |> Codec.field "sessionId" .sessionId Codec.string
-                |> Codec.field "windowWidth" .windowWidth Codec.int
-                |> Codec.field "windowHeight" .windowHeight Codec.int
-                |> Codec.buildObject
-            )
+        |> Codec.variant1 "Connect" Types.Connect connectEventCodec
         |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
         |> Codec.variant1 "Input" Types.Input inputEventCodec
         |> Codec.variant0 "ResetBackend" Types.ResetBackend
@@ -107,6 +95,17 @@ eventTypeCodec =
         |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
         |> Codec.variant1 "WindowResize" Types.WindowResize windowResizeEventCodec
         |> Codec.buildCustom
+
+
+connectEventCodec : Codec Types.ConnectEvent
+connectEventCodec =
+    Codec.object Types.ConnectEvent
+        |> Codec.field "url" .url Codec.string
+        |> Codec.field "sessionId" .sessionId Codec.string
+        |> Codec.field "windowWidth" .windowWidth Codec.int
+        |> Codec.field "windowHeight" .windowHeight Codec.int
+        |> Codec.nullableField "code" .code Codec.string
+        |> Codec.buildObject
 
 
 keyEventCodec : Codec Types.KeyEvent

@@ -86,12 +86,16 @@ type EventType
     | ClickLink LinkEvent
     | Http HttpEvent
     | HttpLocal HttpLocalEvent
-    | Connect { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
+    | Connect ConnectEvent
     | Paste PasteEvent
     | Input InputEvent
     | ResetBackend
     | FromJsPort FromJsPortEvent
     | WindowResize WindowResizeEvent
+
+
+type alias ConnectEvent =
+    { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int, code : Maybe String }
 
 
 type alias WindowResizeEvent =
