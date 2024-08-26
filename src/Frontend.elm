@@ -661,7 +661,7 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
         )
-        { code = " TF.start (config httpData localData) \"test " ++ String.fromInt testIndex ++ "\"\n"
+        { code = " TF.start (config httpData) \"test " ++ String.fromInt testIndex ++ "\"\n"
         , indentation = 0
         , clientCount = 0
         }
@@ -827,7 +827,7 @@ setupCode events =
     """module MyTests exposing (main, setup, tests)
 
 import Effect.Browser.Dom as Dom
-import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
+import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
 import Frontend
 import Backend
 import Url exposing (Url)
