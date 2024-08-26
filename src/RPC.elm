@@ -44,57 +44,160 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\a b c d e f g h i j k l value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
-                    a arg0
+                    keyDownEncoder arg0
 
                 Types.KeyUp arg0 ->
-                    b arg0
+                    keyUpEncoder arg0
 
                 Types.Click arg0 ->
-                    c arg0
+                    clickEncoder arg0
 
                 Types.ClickLink arg0 ->
-                    d arg0
+                    clickLinkEncoder arg0
 
                 Types.Http arg0 ->
-                    e arg0
-
-                Types.Connect arg0 ->
-                    f arg0
-
-                Types.Paste arg0 ->
-                    g arg0
-
-                Types.Input arg0 ->
-                    h arg0
-
-                Types.ResetBackend ->
-                    i
-
-                Types.FromJsPort arg0 ->
-                    j arg0
+                    httpEncoder arg0
 
                 Types.HttpLocal arg0 ->
-                    k arg0
+                    httpLocalEncoder arg0
+
+                Types.Connect arg0 ->
+                    connectEncoder arg0
+
+                Types.Paste arg0 ->
+                    pasteEncoder arg0
+
+                Types.Input arg0 ->
+                    inputEncoder arg0
+
+                Types.ResetBackend ->
+                    resetBackendEncoder
+
+                Types.FromJsPort arg0 ->
+                    fromJsPortEncoder arg0
 
                 Types.WindowResize arg0 ->
-                    l arg0
+                    windowResizeEncoder arg0
+
+                Types.PointerDown arg0 ->
+                    pointerDownEncoder arg0
+
+                Types.PointerUp arg0 ->
+                    pointerUpEncoder arg0
+
+                Types.PointerMove arg0 ->
+                    pointerMoveEncoder arg0
+
+                Types.PointerLeave arg0 ->
+                    pointerLeaveEncoder arg0
+
+                Types.PointerCancel arg0 ->
+                    pointerCancelEncoder arg0
+
+                Types.PointerOver arg0 ->
+                    pointerOverEncoder arg0
+
+                Types.PointerEnter arg0 ->
+                    pointerEnterEncoder arg0
+
+                Types.PointerOut arg0 ->
+                    pointerOutEncoder arg0
+
+                Types.TouchStart arg0 ->
+                    touchStartEncoder arg0
+
+                Types.TouchCancel arg0 ->
+                    touchCancelEncoder arg0
+
+                Types.TouchMove arg0 ->
+                    touchMoveEncoder arg0
+
+                Types.TouchEnd arg0 ->
+                    touchEndEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
         |> Codec.variant1 "Click" Types.Click mouseEventCodec
         |> Codec.variant1 "ClickLink" Types.ClickLink linkEventCodec
         |> Codec.variant1 "Http" Types.Http httpEventCodec
+        |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
         |> Codec.variant1 "Connect" Types.Connect connectEventCodec
         |> Codec.variant1 "Paste" Types.Paste pasteEventCodec
         |> Codec.variant1 "Input" Types.Input inputEventCodec
         |> Codec.variant0 "ResetBackend" Types.ResetBackend
         |> Codec.variant1 "FromJsPort" Types.FromJsPort fromJsPortEventCodec
-        |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
         |> Codec.variant1 "WindowResize" Types.WindowResize windowResizeEventCodec
+        |> Codec.variant1 "PointerDown" Types.PointerDown pointerEventCodec
+        |> Codec.variant1 "PointerUp" Types.PointerUp pointerEventCodec
+        |> Codec.variant1 "PointerMove" Types.PointerMove pointerEventCodec
+        |> Codec.variant1 "PointerLeave" Types.PointerLeave pointerEventCodec
+        |> Codec.variant1 "PointerCancel" Types.PointerCancel pointerEventCodec
+        |> Codec.variant1 "PointerOver" Types.PointerOver pointerEventCodec
+        |> Codec.variant1 "PointerEnter" Types.PointerEnter pointerEventCodec
+        |> Codec.variant1 "PointerOut" Types.PointerOut pointerEventCodec
+        |> Codec.variant1 "TouchStart" Types.TouchStart touchEventCodec
+        |> Codec.variant1 "TouchCancel" Types.TouchCancel touchEventCodec
+        |> Codec.variant1 "TouchMove" Types.TouchMove touchEventCodec
+        |> Codec.variant1 "TouchEnd" Types.TouchEnd touchEventCodec
         |> Codec.buildCustom
+
+
+pointerEventCodec : Codec Types.PointerEvent
+pointerEventCodec =
+    Codec.object Types.PointerEvent
+        |> Codec.field "targetId" .targetId Codec.string
+        |> Codec.field "ctrlKey" .ctrlKey Codec.bool
+        |> Codec.field "shiftKey" .shiftKey Codec.bool
+        |> Codec.field "metaKey" .metaKey Codec.bool
+        |> Codec.field "altKey" .altKey Codec.bool
+        |> Codec.field "clientX" .clientX Codec.float
+        |> Codec.field "clientY" .clientY Codec.float
+        |> Codec.field "offsetX" .offsetX Codec.float
+        |> Codec.field "offsetY" .offsetY Codec.float
+        |> Codec.field "pageX" .pageX Codec.float
+        |> Codec.field "pageY" .pageY Codec.float
+        |> Codec.field "screenX" .screenX Codec.float
+        |> Codec.field "screenY" .screenY Codec.float
+        |> Codec.field "button" .button Codec.int
+        |> Codec.field "pointerType" .pointerType Codec.string
+        |> Codec.field "pointerId" .pointerId Codec.int
+        |> Codec.field "isPrimary" .isPrimary Codec.bool
+        |> Codec.field "width" .width Codec.float
+        |> Codec.field "height" .height Codec.float
+        |> Codec.field "pressure" .pressure Codec.float
+        |> Codec.field "tiltX" .tiltX Codec.float
+        |> Codec.field "tiltY" .tiltY Codec.float
+        |> Codec.buildObject
+
+
+touchEventCodec : Codec Types.TouchEvent
+touchEventCodec =
+    Codec.object Types.TouchEvent
+        |> Codec.field "targetId" .targetId Codec.string
+        |> Codec.field "ctrlKey" .ctrlKey Codec.bool
+        |> Codec.field "shiftKey" .shiftKey Codec.bool
+        |> Codec.field "metaKey" .metaKey Codec.bool
+        |> Codec.field "altKey" .altKey Codec.bool
+        |> Codec.field "changedTouches" .changedTouches (Codec.list touchCodec)
+        |> Codec.field "targetTouches" .targetTouches (Codec.list touchCodec)
+        |> Codec.field "touches" .touches (Codec.list touchCodec)
+        |> Codec.buildObject
+
+
+touchCodec : Codec Types.Touch
+touchCodec =
+    Codec.object Types.Touch
+        |> Codec.field "clientX" .clientX Codec.float
+        |> Codec.field "clientY" .clientY Codec.float
+        |> Codec.field "pageX" .pageX Codec.float
+        |> Codec.field "pageY" .pageY Codec.float
+        |> Codec.field "screenX" .screenX Codec.float
+        |> Codec.field "screenY" .screenY Codec.float
+        |> Codec.field "identifier" .identifier Codec.int
+        |> Codec.buildObject
 
 
 connectEventCodec : Codec Types.ConnectEvent

@@ -92,6 +92,67 @@ type EventType
     | ResetBackend
     | FromJsPort FromJsPortEvent
     | WindowResize WindowResizeEvent
+    | PointerDown PointerEvent
+    | PointerUp PointerEvent
+    | PointerMove PointerEvent
+    | PointerLeave PointerEvent
+    | PointerCancel PointerEvent
+    | PointerOver PointerEvent
+    | PointerEnter PointerEvent
+    | PointerOut PointerEvent
+    | TouchStart TouchEvent
+    | TouchCancel TouchEvent
+    | TouchMove TouchEvent
+    | TouchEnd TouchEvent
+
+
+type alias PointerEvent =
+    { targetId : String
+    , ctrlKey : Bool
+    , shiftKey : Bool
+    , metaKey : Bool
+    , altKey : Bool
+    , clientX : Float
+    , clientY : Float
+    , offsetX : Float
+    , offsetY : Float
+    , pageX : Float
+    , pageY : Float
+    , screenX : Float
+    , screenY : Float
+    , button : Int
+    , pointerType : String
+    , pointerId : Int
+    , isPrimary : Bool
+    , width : Float
+    , height : Float
+    , pressure : Float
+    , tiltX : Float
+    , tiltY : Float
+    }
+
+
+type alias TouchEvent =
+    { targetId : String
+    , ctrlKey : Bool
+    , shiftKey : Bool
+    , metaKey : Bool
+    , altKey : Bool
+    , changedTouches : List Touch
+    , targetTouches : List Touch
+    , touches : List Touch
+    }
+
+
+type alias Touch =
+    { clientX : Float
+    , clientY : Float
+    , pageX : Float
+    , pageY : Float
+    , screenX : Float
+    , screenY : Float
+    , identifier : Int
+    }
 
 
 type alias ConnectEvent =

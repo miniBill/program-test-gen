@@ -332,6 +332,9 @@ eventsToEvent2 events =
                     , previousClientId = clientId
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
+
+                _ ->
+                    state
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -551,9 +554,10 @@ setupCode events =
                 events
                 |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
                 |> List.map (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
+                |> (\a -> a ++ localRequests)
                 |> String.join "\n    , "
 
-        localRequests : String
+        localRequests : List String
         localRequests =
             List.filterMap
                 (\event ->
@@ -567,8 +571,7 @@ setupCode events =
                 events
                 |> Set.fromList
                 |> Set.toList
-                |> List.map (\filepath -> "\"" ++ filepath ++ "\"")
-                |> String.join "\n    , "
+                |> List.map (\filepath -> "(\"GET_" ++ filepath ++ "\", \"/public" ++ filepath ++ "\")")
 
         portRequests : String
         portRequests =
@@ -590,7 +593,7 @@ setupCode events =
                 |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
                 |> List.map
                     (\fromJsPort ->
-                        "        (\""
+                        "(\""
                             ++ fromJsPort.triggeredFromPort
                             ++ "\", (\""
                             ++ fromJsPort.port_
@@ -624,7 +627,6 @@ setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel
 setup =
     TF.viewerWith tests
         |> TF.addBytesFiles (Dict.values httpRequests)
-        |> TF.addBytesFiles localRequests
 
 
 main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
@@ -636,9 +638,9 @@ domain : Url
 domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
 
 
-config : Dict String Bytes -> Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
-config httpData localData =
-    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData localData) handlePortToJs handleFileRequest handleMultiFileUpload domain
+config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
+config httpData =
+    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
 
 
 stringToJson : String -> Json.Encode.Value
@@ -676,17 +678,8 @@ httpRequests =
         |> Dict.fromList
 
 
-{-| Please don't modify or rename this function -}
-localRequests : List String
-localRequests =
-    [ """
-        ++ localRequests
-        ++ """
-    ]
-
-
-handleHttpRequests : Dict String Bytes -> Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
-handleHttpRequests httpData localData { currentRequest } =
+handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
+handleHttpRequests httpData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
         Just filepath ->
             case Dict.get filepath httpData of
@@ -697,12 +690,7 @@ handleHttpRequests httpData localData { currentRequest } =
                     UnhandledHttpRequest
 
         Nothing ->
-            case Dict.get currentRequest.url localData of
-                Just data ->
-                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
-
-                Nothing ->
-                    UnhandledHttpRequest
+            UnhandledHttpRequest
 
 
 handleMultiFileUpload : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> MultipleFilesUpload
@@ -710,9 +698,16 @@ handleMultiFileUpload _ =
     UnhandledMultiFileUpload
 
 
-{-| Please don't rename this function (you can modify existing tests or add new ones though) -}
-tests : Dict String Bytes -> Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests httpData localData =
+{-| You can change parts of this function represented with `...`.
+The rest needs to remain unchanged in order for the test generator to be able to add new tests.
+
+    tests : ... -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+    tests ... =
+        [ ...
+        ]
+-}
+tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests httpData =
     ["""
 
 
@@ -752,18 +747,17 @@ view model =
                         , Ui.column
                             [ Ui.height Ui.fill, Ui.spacing 8 ]
                             [ Ui.row
-                                [ Ui.spacing 4 ]
-                                [ button PressedCopyCode [ Icons.copy, Ui.text " Copy" ]
-                                , if loaded.copyCounter > 0 then
-                                    Ui.el
-                                        [ Ui.Anim.intro
-                                            (Ui.Anim.ms 2000)
-                                            { start = [ Ui.Anim.opacity 1 ], to = [ Ui.Anim.opacity 0 ] }
-                                        ]
-                                        (Ui.text "Copied!")
+                                [ Ui.spacing 16 ]
+                                [ button
+                                    PressedCopyCode
+                                    [ Icons.copy
+                                    , if loaded.copyCounter > 0 then
+                                        Ui.text "Copied!"
 
-                                  else
-                                    Ui.none
+                                      else
+                                        Ui.text " Copy"
+                                    ]
+                                , Ui.el [ Ui.Font.size 14 ] (Ui.text "Press \"Reset Backend\" in lamdera live to start a new test")
                                 ]
                             , List.filter (\event -> not event.isHidden) eventsList
                                 |> codegen
@@ -862,6 +856,42 @@ eventsView events =
 
                             WindowResize { width, height } ->
                                 "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
+
+                            PointerDown pointerEvent ->
+                                "Pointer down"
+
+                            PointerUp pointerEvent ->
+                                "Pointer up"
+
+                            PointerMove pointerEvent ->
+                                "Pointer move"
+
+                            PointerLeave pointerEvent ->
+                                "Pointer leave"
+
+                            PointerCancel pointerEvent ->
+                                "Pointer cancel"
+
+                            PointerOver pointerEvent ->
+                                "Pointer over"
+
+                            PointerEnter pointerEvent ->
+                                "Pointer enter"
+
+                            PointerOut pointerEvent ->
+                                "Pointer out"
+
+                            TouchStart touchEvent ->
+                                "Touch start"
+
+                            TouchCancel touchEvent ->
+                                "Touch cancel"
+
+                            TouchMove touchEvent ->
+                                "Touch move"
+
+                            TouchEnd touchEvent ->
+                                "Touch end"
                           )
                             |> Ui.text
                         ]
