@@ -226,6 +226,18 @@ type EventType2
     | Connect2 ConnectEvent
     | KeyUp2 KeyEvent
     | KeyDown2 KeyEvent
+    | PointerDown2 PointerEvent
+    | PointerUp2 PointerEvent
+    | PointerMove2 PointerEvent
+    | PointerLeave2 PointerEvent
+    | PointerCancel2 PointerEvent
+    | PointerOver2 PointerEvent
+    | PointerEnter2 PointerEvent
+    | PointerOut2 PointerEvent
+    | TouchStart2 TouchEvent
+    | TouchCancel2 TouchEvent
+    | TouchMove2 TouchEvent
+    | TouchEnd2 TouchEvent
     | FromJsPort2 FromJsPortEvent
     | WindowResize2 WindowResizeEvent
 
@@ -261,6 +273,54 @@ eventsToEvent2 events =
 
                 ( KeyUp keyUp, _ ) ->
                     { previousEvent = KeyUp2 keyUp |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerDown a, _ ) ->
+                    { previousEvent = PointerDown2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerUp a, _ ) ->
+                    { previousEvent = PointerUp2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerMove a, _ ) ->
+                    { previousEvent = PointerMove2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerLeave a, _ ) ->
+                    { previousEvent = PointerLeave2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerCancel a, _ ) ->
+                    { previousEvent = PointerCancel2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerOver a, _ ) ->
+                    { previousEvent = PointerOver2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerEnter a, _ ) ->
+                    { previousEvent = PointerEnter2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( PointerOut a, _ ) ->
+                    { previousEvent = PointerOut2 a |> Just
                     , previousClientId = clientId
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
@@ -528,6 +588,78 @@ testCode clients testIndex events =
                     , indentation = indentation
                     , clientCount = clientCount
                     }
+
+                PointerDown2 a ->
+                    { code = code ++ pointerCodegen "pointerDown" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerUp2 a ->
+                    { code = code ++ pointerCodegen "pointerUp" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerMove2 a ->
+                    { code = code ++ pointerCodegen "pointerMove" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerLeave2 a ->
+                    { code = code ++ pointerCodegen "pointerLeave" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerCancel2 a ->
+                    { code = code ++ pointerCodegen "pointerCancel" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerOver2 a ->
+                    { code = code ++ pointerCodegen "pointerOver" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerEnter2 a ->
+                    { code = code ++ pointerCodegen "pointerEnter" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                PointerOut2 a ->
+                    { code = code ++ pointerCodegen "pointerOut" client a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                TouchStart2 a ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                TouchCancel2 a ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                TouchMove2 a ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                TouchEnd2 a ->
+                    { code = code
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
         )
         { code = " TF.start (config httpData localData) \"test " ++ String.fromInt testIndex ++ "\"\n"
         , indentation = 0
@@ -535,6 +667,90 @@ testCode clients testIndex events =
         }
         (eventsToEvent2 events)
         |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
+
+
+pointerCodegen : String -> String -> PointerEvent -> String
+pointerCodegen funcName client a =
+    let
+        options : List String
+        options =
+            List.filterMap
+                (\( name, x, y ) ->
+                    if x == a.offsetX && y == a.offsetY then
+                        Nothing
+
+                    else
+                        Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+                )
+                [ ( "ScreenPos", a.screenX, a.screenY )
+                , ( "PagePos", a.pageX, a.pageY )
+                , ( "ClientPos", a.clientX, a.clientY )
+                ]
+                ++ List.filterMap
+                    identity
+                    [ case a.button of
+                        1 ->
+                            Just "PointerButton MainButton"
+
+                        2 ->
+                            Just "PointerButton MiddleButton"
+
+                        3 ->
+                            Just "PointerButton SecondButton"
+
+                        4 ->
+                            Just "PointerButton BackButton"
+
+                        5 ->
+                            Just "PointerButton ForwardButton"
+
+                        _ ->
+                            Nothing
+                    , if a.altKey then
+                        Just "AltHeld"
+
+                      else
+                        Nothing
+                    , if a.shiftKey then
+                        Just "ShiftHeld"
+
+                      else
+                        Nothing
+                    , if a.ctrlKey then
+                        Just "CtrlHeld"
+
+                      else
+                        Nothing
+                    , if a.metaKey then
+                        Just "MetaHeld"
+
+                      else
+                        Nothing
+                    , if a.pointerId == 0 then
+                        Nothing
+
+                      else
+                        Just ("PointerId " ++ String.fromInt a.pointerId)
+                    , if a.isPrimary then
+                        Nothing
+
+                      else
+                        Just "IsNotPrimary"
+                    ]
+    in
+    "    |> "
+        ++ client
+        ++ "."
+        ++ funcName
+        ++ " "
+        ++ targetIdFunc a.targetId
+        ++ " { offsetPos = ("
+        ++ String.fromFloat a.offsetX
+        ++ ","
+        ++ String.fromFloat a.offsetY
+        ++ ") } [ "
+        ++ String.join ", " options
+        ++ " ]\n"
 
 
 setupCode : List Event -> String
@@ -864,7 +1080,19 @@ eventsView events =
                                 "Pointer up"
 
                             PointerMove pointerEvent ->
-                                "Pointer move"
+                                let
+                                    xyToString x y =
+                                        String.fromFloat x ++ "," ++ String.fromFloat y
+                                in
+                                "Pointer move (client "
+                                    ++ xyToString pointerEvent.clientX pointerEvent.clientY
+                                    ++ ") (offset "
+                                    ++ xyToString pointerEvent.offsetX pointerEvent.offsetY
+                                    ++ ") (screen "
+                                    ++ xyToString pointerEvent.screenX pointerEvent.screenX
+                                    ++ ") (page "
+                                    ++ xyToString pointerEvent.pageX pointerEvent.pageY
+                                    ++ ")"
 
                             PointerLeave pointerEvent ->
                                 "Pointer leave"
