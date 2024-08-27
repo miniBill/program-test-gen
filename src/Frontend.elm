@@ -1,4 +1,4 @@
-port module Frontend exposing (..)
+port module Frontend exposing (addEvent, app)
 
 import Array exposing (Array)
 import Array.Extra
@@ -325,6 +325,30 @@ eventsToEvent2 events =
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
 
+                ( TouchStart a, _ ) ->
+                    { previousEvent = TouchStart2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( TouchCancel a, _ ) ->
+                    { previousEvent = TouchCancel2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( TouchMove a, _ ) ->
+                    { previousEvent = TouchMove2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
+                ( TouchEnd a, _ ) ->
+                    { previousEvent = TouchEnd2 a |> Just
+                    , previousClientId = clientId
+                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    }
+
                 ( Connect connect, _ ) ->
                     { previousEvent = Connect2 connect |> Just
                     , previousClientId = clientId
@@ -392,9 +416,6 @@ eventsToEvent2 events =
                     , previousClientId = clientId
                     , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
                     }
-
-                _ ->
-                    state
         )
         { previousClientId = "", previousEvent = Nothing, rest = [] }
         events
@@ -590,73 +611,73 @@ testCode clients testIndex events =
                     }
 
                 PointerDown2 a ->
-                    { code = code ++ pointerCodegen "pointerDown" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerDown" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerUp2 a ->
-                    { code = code ++ pointerCodegen "pointerUp" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerUp" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerMove2 a ->
-                    { code = code ++ pointerCodegen "pointerMove" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerMove" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerLeave2 a ->
-                    { code = code ++ pointerCodegen "pointerLeave" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerLeave" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerCancel2 a ->
-                    { code = code ++ pointerCodegen "pointerCancel" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerCancel" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOver2 a ->
-                    { code = code ++ pointerCodegen "pointerOver" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerOver" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerEnter2 a ->
-                    { code = code ++ pointerCodegen "pointerEnter" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerEnter" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOut2 a ->
-                    { code = code ++ pointerCodegen "pointerOut" client a
+                    { code = code ++ indent ++ pointerCodegen "pointerOut" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 TouchStart2 a ->
-                    { code = code
+                    { code = code ++ indent ++ touchCodegen "touchStart" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 TouchCancel2 a ->
-                    { code = code
+                    { code = code ++ indent ++ touchCodegen "touchCancel" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 TouchMove2 a ->
-                    { code = code
+                    { code = code ++ indent ++ touchCodegen "touchMove" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 TouchEnd2 a ->
-                    { code = code
+                    { code = code ++ indent ++ touchCodegen "touchEnd" client a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -667,6 +688,40 @@ testCode clients testIndex events =
         }
         (eventsToEvent2 events)
         |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
+
+
+touchCodegen : String -> String -> TouchEvent -> String
+touchCodegen funcName client a =
+    let
+        touchToString : Touch -> String
+        touchToString touch =
+            "{ id = "
+                ++ String.fromInt touch.identifier
+                ++ ", screenPos = ("
+                ++ String.fromFloat touch.screenX
+                ++ ", "
+                ++ String.fromFloat touch.screenY
+                ++ "), clientPos = ("
+                ++ String.fromFloat touch.clientX
+                ++ ", "
+                ++ String.fromFloat touch.clientY
+                ++ "), pagePos = ("
+                ++ String.fromFloat touch.pageX
+                ++ ", "
+                ++ String.fromFloat touch.pageY
+                ++ ") }"
+    in
+    "    |> "
+        ++ client
+        ++ "."
+        ++ funcName
+        ++ " "
+        ++ targetIdFunc a.targetId
+        ++ " { targetTouches = [ "
+        ++ String.join ", " (List.map touchToString a.targetTouches)
+        ++ " ], changedTouches = [ "
+        ++ String.join ", " (List.map touchToString a.targetTouches)
+        ++ " ] }\n"
 
 
 pointerCodegen : String -> String -> PointerEvent -> String
@@ -1046,7 +1101,7 @@ eventsView events =
                                     Nothing ->
                                         "clicked on nothing"
 
-                            Http httpEvent ->
+                            Http _ ->
                                 "http request"
 
                             Connect record ->
@@ -1073,10 +1128,10 @@ eventsView events =
                             WindowResize { width, height } ->
                                 "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
 
-                            PointerDown pointerEvent ->
+                            PointerDown _ ->
                                 "Pointer down"
 
-                            PointerUp pointerEvent ->
+                            PointerUp _ ->
                                 "Pointer up"
 
                             PointerMove pointerEvent ->
@@ -1094,31 +1149,31 @@ eventsView events =
                                     ++ xyToString pointerEvent.pageX pointerEvent.pageY
                                     ++ ")"
 
-                            PointerLeave pointerEvent ->
+                            PointerLeave _ ->
                                 "Pointer leave"
 
-                            PointerCancel pointerEvent ->
+                            PointerCancel _ ->
                                 "Pointer cancel"
 
-                            PointerOver pointerEvent ->
+                            PointerOver _ ->
                                 "Pointer over"
 
-                            PointerEnter pointerEvent ->
+                            PointerEnter _ ->
                                 "Pointer enter"
 
-                            PointerOut pointerEvent ->
+                            PointerOut _ ->
                                 "Pointer out"
 
-                            TouchStart touchEvent ->
+                            TouchStart _ ->
                                 "Touch start"
 
-                            TouchCancel touchEvent ->
+                            TouchCancel _ ->
                                 "Touch cancel"
 
-                            TouchMove touchEvent ->
+                            TouchMove _ ->
                                 "Touch move"
 
-                            TouchEnd touchEvent ->
+                            TouchEnd _ ->
                                 "Touch end"
                           )
                             |> Ui.text
