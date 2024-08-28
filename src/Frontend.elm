@@ -6,6 +6,7 @@ import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Navigation
+import Duration exposing (Duration)
 import Html
 import Icons
 import Lamdera exposing (ClientId, SessionId)
@@ -220,151 +221,127 @@ eventsListContainer =
 
 
 type EventType2
-    = Input2 { targetId : String, text : String }
-    | Click2 MouseEvent
-    | ClickLink2 LinkEvent
-    | Connect2 ConnectEvent
-    | KeyUp2 KeyEvent
-    | KeyDown2 KeyEvent
-    | PointerDown2 PointerEvent
-    | PointerUp2 PointerEvent
-    | PointerMove2 PointerEvent
-    | PointerLeave2 PointerEvent
-    | PointerCancel2 PointerEvent
-    | PointerOver2 PointerEvent
-    | PointerEnter2 PointerEvent
-    | PointerOut2 PointerEvent
-    | TouchStart2 TouchEvent
-    | TouchCancel2 TouchEvent
-    | TouchMove2 TouchEvent
-    | TouchEnd2 TouchEvent
-    | FromJsPort2 FromJsPortEvent
-    | WindowResize2 WindowResizeEvent
+    = Input2 ClientId { targetId : String, text : String }
+    | Click2 ClientId MouseEvent
+    | ClickLink2 ClientId LinkEvent
+    | Connect2 ClientId ConnectEvent
+    | KeyUp2 ClientId KeyEvent
+    | KeyDown2 ClientId KeyEvent
+    | PointerDown2 ClientId PointerEvent
+    | PointerUp2 ClientId PointerEvent
+    | PointerMove2 ClientId PointerEvent
+    | PointerLeave2 ClientId PointerEvent
+    | PointerCancel2 ClientId PointerEvent
+    | PointerOver2 ClientId PointerEvent
+    | PointerEnter2 ClientId PointerEvent
+    | PointerOut2 ClientId PointerEvent
+    | TouchStart2 ClientId TouchEvent
+    | TouchCancel2 ClientId TouchEvent
+    | TouchMove2 ClientId TouchEvent
+    | TouchEnd2 ClientId TouchEvent
+    | FromJsPort2 ClientId FromJsPortEvent
+    | WindowResize2 ClientId WindowResizeEvent
+    | SimulateTime Duration
 
 
-eventsToEvent2 : List Event -> List { eventType : EventType2, clientId : ClientId }
+eventsToEvent2 : List Event -> List EventType2
 eventsToEvent2 events =
-    let
-        toEvent clientId eventType2 =
-            { clientId = clientId
-            , eventType = eventType2
-            }
-    in
     List.foldl
-        (\{ clientId, eventType } state ->
-            case ( eventType, state.previousEvent ) of
-                ( Input input, Just (Input2 _) ) ->
-                    { previousEvent = Input2 input |> Just
-                    , previousClientId = clientId
+        (\{ clientId, eventType, timestamp } state ->
+            case ( eventType, Maybe.map .eventType state.previousEvent ) of
+                ( Input input, Just (Input2 _ _) ) ->
+                    { previousEvent = Just { eventType = Input2 clientId input, time = timestamp }
                     , rest = state.rest
                     }
 
                 ( Input input, _ ) ->
-                    { previousEvent = Input2 input |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = Input2 clientId input, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( KeyDown keyDown, _ ) ->
-                    { previousEvent = KeyDown2 keyDown |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = KeyDown2 clientId keyDown, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( KeyUp keyUp, _ ) ->
-                    { previousEvent = KeyUp2 keyUp |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = KeyUp2 clientId keyUp, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerDown a, _ ) ->
-                    { previousEvent = PointerDown2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerDown2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerUp a, _ ) ->
-                    { previousEvent = PointerUp2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerUp2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerMove a, _ ) ->
-                    { previousEvent = PointerMove2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerMove2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerLeave a, _ ) ->
-                    { previousEvent = PointerLeave2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerLeave2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerCancel a, _ ) ->
-                    { previousEvent = PointerCancel2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerCancel2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerOver a, _ ) ->
-                    { previousEvent = PointerOver2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerOver2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerEnter a, _ ) ->
-                    { previousEvent = PointerEnter2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerEnter2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( PointerOut a, _ ) ->
-                    { previousEvent = PointerOut2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = PointerOut2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( TouchStart a, _ ) ->
-                    { previousEvent = TouchStart2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = TouchStart2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( TouchCancel a, _ ) ->
-                    { previousEvent = TouchCancel2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = TouchCancel2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( TouchMove a, _ ) ->
-                    { previousEvent = TouchMove2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = TouchMove2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( TouchEnd a, _ ) ->
-                    { previousEvent = TouchEnd2 a |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = TouchEnd2 clientId a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( Connect connect, _ ) ->
-                    { previousEvent = Connect2 connect |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = Connect2 clientId connect, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( Click mouseEvent, _ ) ->
-                    { previousEvent = Click2 mouseEvent |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = Click2 clientId mouseEvent, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( ClickLink linkEvent, _ ) ->
-                    { previousEvent = ClickLink2 linkEvent |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = ClickLink2 clientId linkEvent, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( Http _, _ ) ->
@@ -373,19 +350,17 @@ eventsToEvent2 events =
                 ( HttpLocal _, _ ) ->
                     state
 
-                ( Paste pasteEvent, Just (Input2 input) ) ->
+                ( Paste pasteEvent, Just (Input2 previousClientId input) ) ->
                     case pasteEvent.targetId of
                         Just targetId ->
-                            if targetId == input.targetId && state.previousClientId == clientId then
+                            if targetId == input.targetId && previousClientId == clientId then
                                 { state
-                                    | previousEvent = Input2 { input | text = input.text ++ pasteEvent.text } |> Just
-                                    , previousClientId = clientId
+                                    | previousEvent = Just { eventType = Input2 clientId { input | text = input.text ++ pasteEvent.text }, time = timestamp }
                                 }
 
                             else
-                                { previousEvent = Input2 { targetId = targetId, text = pasteEvent.text } |> Just
-                                , previousClientId = clientId
-                                , rest = [ toEvent clientId (Input2 input) ] ++ state.rest
+                                { previousEvent = Just { eventType = Input2 clientId { targetId = targetId, text = pasteEvent.text }, time = timestamp }
+                                , rest = [ { eventType = Input2 clientId input, time = timestamp } ] ++ state.rest
                                 }
 
                         Nothing ->
@@ -394,9 +369,8 @@ eventsToEvent2 events =
                 ( Paste pasteEvent, _ ) ->
                     case pasteEvent.targetId of
                         Just targetId ->
-                            { previousEvent = Input2 { targetId = targetId, text = pasteEvent.text } |> Just
-                            , previousClientId = clientId
-                            , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                            { previousEvent = Just { eventType = Input2 clientId { targetId = targetId, text = pasteEvent.text }, time = timestamp }
+                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                             }
 
                         Nothing ->
@@ -406,20 +380,41 @@ eventsToEvent2 events =
                     state
 
                 ( FromJsPort fromJsPort, _ ) ->
-                    { previousEvent = FromJsPort2 fromJsPort |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = FromJsPort2 clientId fromJsPort, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 ( WindowResize resizeEvent, _ ) ->
-                    { previousEvent = WindowResize2 resizeEvent |> Just
-                    , previousClientId = clientId
-                    , rest = Maybe.Extra.toList (Maybe.map (toEvent clientId) state.previousEvent) ++ state.rest
+                    { previousEvent = Just { eventType = WindowResize2 clientId resizeEvent, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
-        { previousClientId = "", previousEvent = Nothing, rest = [] }
+        { previousEvent = Nothing, rest = [] }
         events
-        |> (\state -> Maybe.Extra.toList (Maybe.map (toEvent state.previousClientId) state.previousEvent) ++ state.rest)
+        |> (\state -> Maybe.Extra.toList state.previousEvent ++ state.rest)
+        |> List.reverse
+        |> List.foldl
+            (\event state ->
+                { previousEvent = Just event
+                , list =
+                    case state.previousEvent of
+                        Just { time } ->
+                            let
+                                delta =
+                                    event.time - time
+                            in
+                            if delta > 0 then
+                                event.eventType :: SimulateTime (Duration.milliseconds (toFloat delta)) :: state.list
+
+                            else
+                                event.eventType :: state.list
+
+                        Nothing ->
+                            event.eventType :: state.list
+                }
+            )
+            { previousEvent = Nothing, list = [] }
+        |> .list
         |> List.reverse
 
 
@@ -465,16 +460,16 @@ testCode clients testIndex events =
                 indent =
                     String.repeat indentation "             "
 
-                client =
-                    case List.Extra.findIndex (\a -> a == event.clientId) clients of
+                client clientId =
+                    case List.Extra.findIndex (\a -> a == clientId) clients of
                         Just index ->
                             "client" ++ String.fromInt (index + 1)
 
                         Nothing ->
                             "client"
             in
-            case event.eventType of
-                Connect2 { url, sessionId, windowWidth, windowHeight } ->
+            case event of
+                Connect2 clientId { url, sessionId, windowWidth, windowHeight } ->
                     let
                         state =
                             if clientCount == 0 then
@@ -489,18 +484,18 @@ testCode clients testIndex events =
                             ++ (indent ++ "        (Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
                             ++ (indent ++ "        (Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
                             ++ (indent ++ "        { width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
-                            ++ (indent ++ "        (\\( " ++ state ++ ", " ++ client ++ ") ->\n")
+                            ++ (indent ++ "        (\\( " ++ state ++ ", " ++ client clientId ++ ") ->\n")
                             ++ (indent ++ "            " ++ state ++ "\n")
                     , indentation = indentation + 1
                     , clientCount = clientCount + 1
                     }
 
-                WindowResize2 resizeEvent ->
+                WindowResize2 clientId resizeEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
-                            ++ client
+                            ++ client clientId
                             ++ ".resizeWindow { width = "
                             ++ String.fromInt resizeEvent.width
                             ++ ", height = "
@@ -510,12 +505,12 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
 
-                KeyDown2 keyEvent ->
+                KeyDown2 clientId keyEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
-                            ++ client
+                            ++ client clientId
                             ++ ".keyDown "
                             ++ targetIdFunc keyEvent.targetId
                             ++ " { key = \""
@@ -533,12 +528,12 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
 
-                KeyUp2 keyEvent ->
+                KeyUp2 clientId keyEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
-                            ++ client
+                            ++ client clientId
                             ++ ".keyUp "
                             ++ targetIdFunc keyEvent.targetId
                             ++ " { key = \""
@@ -567,14 +562,14 @@ testCode clients testIndex events =
                 --, indentation = indentation
                 --, clientCount = clientCount
                 --}
-                Click2 mouseEvent ->
+                Click2 clientId mouseEvent ->
                     { code =
                         case mouseEvent.targetId of
                             Just targetId ->
                                 code
                                     ++ indent
                                     ++ "    |> "
-                                    ++ client
+                                    ++ client clientId
                                     ++ ".clickButton "
                                     ++ targetIdFunc targetId
                                     ++ "\n"
@@ -585,12 +580,12 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
 
-                ClickLink2 mouseEvent ->
+                ClickLink2 clientId mouseEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
-                            ++ client
+                            ++ client clientId
                             ++ ".clickLink \""
                             ++ mouseEvent.path
                             ++ "\"\n"
@@ -598,86 +593,92 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
 
-                Input2 { targetId, text } ->
-                    { code = code ++ indent ++ "    |> " ++ client ++ ".inputText " ++ targetIdFunc targetId ++ " \"" ++ text ++ "\"\n"
+                Input2 clientId { targetId, text } ->
+                    { code = code ++ indent ++ "    |> " ++ client clientId ++ ".inputText " ++ targetIdFunc targetId ++ " \"" ++ text ++ "\"\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                FromJsPort2 _ ->
+                FromJsPort2 clientId _ ->
                     { code = code
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerDown2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerDown" client a
+                PointerDown2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerDown" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerUp2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerUp" client a
+                PointerUp2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerUp" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerMove2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerMove" client a
+                PointerMove2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerLeave2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerLeave" client a
+                PointerLeave2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerLeave" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerCancel2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerCancel" client a
+                PointerCancel2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerOver2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerOver" client a
+                PointerOver2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerOver" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerEnter2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerEnter" client a
+                PointerEnter2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerEnter" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerOut2 a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerOut" client a
+                PointerOut2 clientId a ->
+                    { code = code ++ indent ++ pointerCodegen "pointerOut" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchStart2 a ->
-                    { code = code ++ indent ++ touchCodegen "touchStart" client a
+                TouchStart2 clientId a ->
+                    { code = code ++ indent ++ touchCodegen "touchStart" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchCancel2 a ->
-                    { code = code ++ indent ++ touchCodegen "touchCancel" client a
+                TouchCancel2 clientId a ->
+                    { code = code ++ indent ++ touchCodegen "touchCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchMove2 a ->
-                    { code = code ++ indent ++ touchCodegen "touchMove" client a
+                TouchMove2 clientId a ->
+                    { code = code ++ indent ++ touchCodegen "touchMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchEnd2 a ->
-                    { code = code ++ indent ++ touchCodegen "touchEnd" client a
+                TouchEnd2 clientId a ->
+                    { code = code ++ indent ++ touchCodegen "touchEnd" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                SimulateTime duration ->
+                    { code = code ++ indent ++ "    |> TF.simulateTime (Duration.seconds " ++ String.fromFloat (Duration.inSeconds duration) ++ ")\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -799,11 +800,11 @@ pointerCodegen funcName client a =
         ++ funcName
         ++ " "
         ++ targetIdFunc a.targetId
-        ++ " { offsetPos = ("
+        ++ " ("
         ++ String.fromFloat a.offsetX
         ++ ","
         ++ String.fromFloat a.offsetY
-        ++ ") } [ "
+        ++ ") [ "
         ++ String.join ", " options
         ++ " ]\n"
 
