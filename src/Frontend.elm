@@ -222,7 +222,7 @@ eventsListContainer =
 
 type EventType2
     = Input2 ClientId { targetId : String, text : String }
-    | Click2 ClientId MouseEvent
+    | Click2 ClientId { targetId : String }
     | ClickLink2 ClientId LinkEvent
     | Connect2 ClientId ConnectEvent
     | KeyUp2 ClientId KeyEvent
@@ -241,7 +241,7 @@ type EventType2
     | TouchEnd2 ClientId TouchEvent
     | FromJsPort2 ClientId FromJsPortEvent
     | WindowResize2 ClientId WindowResizeEvent
-    | SimulateTime Duration
+    | SimulateTime Int
 
 
 eventsToEvent2 : List Event -> List EventType2
@@ -335,9 +335,14 @@ eventsToEvent2 events =
                     }
 
                 ( Click mouseEvent, _ ) ->
-                    { previousEvent = Just { eventType = Click2 clientId mouseEvent, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
+                    case mouseEvent.targetId of
+                        Just targetId ->
+                            { previousEvent = Just { eventType = Click2 clientId { targetId = targetId }, time = timestamp }
+                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                            }
+
+                        Nothing ->
+                            state
 
                 ( ClickLink linkEvent, _ ) ->
                     { previousEvent = Just { eventType = ClickLink2 clientId linkEvent, time = timestamp }
@@ -380,10 +385,11 @@ eventsToEvent2 events =
                     state
 
                 ( FromJsPort fromJsPort, _ ) ->
-                    { previousEvent = Just { eventType = FromJsPort2 clientId fromJsPort, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
+                    state
 
+                --{ previousEvent = Just { eventType = FromJsPort2 clientId fromJsPort, time = timestamp }
+                --, rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                --}
                 ( WindowResize resizeEvent, _ ) ->
                     { previousEvent = Just { eventType = WindowResize2 clientId resizeEvent, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
@@ -400,11 +406,12 @@ eventsToEvent2 events =
                     case state.previousEvent of
                         Just { time } ->
                             let
+                                delta : Int
                                 delta =
                                     event.time - time
                             in
                             if delta > 0 then
-                                event.eventType :: SimulateTime (Duration.milliseconds (toFloat delta)) :: state.list
+                                event.eventType :: SimulateTime delta :: state.list
 
                             else
                                 event.eventType :: state.list
@@ -463,10 +470,10 @@ testCode clients testIndex events =
                 client clientId =
                     case List.Extra.findIndex (\a -> a == clientId) clients of
                         Just index ->
-                            "client" ++ String.fromInt (index + 1)
+                            "tab" ++ String.fromInt (index + 1)
 
                         Nothing ->
-                            "client"
+                            "tab"
             in
             case event of
                 Connect2 clientId { url, sessionId, windowWidth, windowHeight } ->
@@ -513,17 +520,25 @@ testCode clients testIndex events =
                             ++ client clientId
                             ++ ".keyDown "
                             ++ targetIdFunc keyEvent.targetId
-                            ++ " { key = \""
+                            ++ " \""
                             ++ keyEvent.key
-                            ++ "\", shift = "
-                            ++ boolToString keyEvent.shiftKey
-                            ++ ", alt = "
-                            ++ boolToString keyEvent.altKey
-                            ++ ", ctrl = "
-                            ++ boolToString keyEvent.ctrlKey
-                            ++ ", meta = "
-                            ++ boolToString keyEvent.metaKey
-                            ++ " }\n"
+                            ++ "\" [ "
+                            ++ String.join ", "
+                                (List.filterMap
+                                    (\( name, bool ) ->
+                                        if bool then
+                                            Just name
+
+                                        else
+                                            Nothing
+                                    )
+                                    [ ( "Key_ShiftHeld", keyEvent.shiftKey )
+                                    , ( "Key_AltHeld", keyEvent.altKey )
+                                    , ( "Key_CtrlHeld", keyEvent.ctrlKey )
+                                    , ( "Key_MetaHeld", keyEvent.metaKey )
+                                    ]
+                                )
+                            ++ " ]\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -536,46 +551,38 @@ testCode clients testIndex events =
                             ++ client clientId
                             ++ ".keyUp "
                             ++ targetIdFunc keyEvent.targetId
-                            ++ " { key = \""
+                            ++ " \""
                             ++ keyEvent.key
-                            ++ "\", shift = "
-                            ++ boolToString keyEvent.shiftKey
-                            ++ ", alt = "
-                            ++ boolToString keyEvent.altKey
-                            ++ ", ctrl = "
-                            ++ boolToString keyEvent.ctrlKey
-                            ++ ", meta = "
-                            ++ boolToString keyEvent.metaKey
-                            ++ " }\n"
+                            ++ "\" [ "
+                            ++ String.join ", "
+                                (List.filterMap
+                                    (\( name, bool ) ->
+                                        if bool then
+                                            Just name
+
+                                        else
+                                            Nothing
+                                    )
+                                    [ ( "Key_ShiftHeld", keyEvent.shiftKey )
+                                    , ( "Key_AltHeld", keyEvent.altKey )
+                                    , ( "Key_CtrlHeld", keyEvent.ctrlKey )
+                                    , ( "Key_MetaHeld", keyEvent.metaKey )
+                                    ]
+                                )
+                            ++ " ]\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                --{ code =
-                --    code
-                --        ++ indent
-                --        ++ "    |> "
-                --        ++ client
-                --        ++ ".keyDownEvent { keyCode = "
-                --        ++ String.fromInt keyEvent.keyCode
-                --        ++ " }\n"
-                --, indentation = indentation
-                --, clientCount = clientCount
-                --}
                 Click2 clientId mouseEvent ->
                     { code =
-                        case mouseEvent.targetId of
-                            Just targetId ->
-                                code
-                                    ++ indent
-                                    ++ "    |> "
-                                    ++ client clientId
-                                    ++ ".clickButton "
-                                    ++ targetIdFunc targetId
-                                    ++ "\n"
-
-                            Nothing ->
-                                code
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".clickButton "
+                            ++ targetIdFunc mouseEvent.targetId
+                            ++ "\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -678,7 +685,7 @@ testCode clients testIndex events =
                     }
 
                 SimulateTime duration ->
-                    { code = code ++ indent ++ "    |> TF.simulateTime (Duration.seconds " ++ String.fromFloat (Duration.inSeconds duration) ++ ")\n"
+                    { code = code ++ indent ++ "    |> TF.simulateTime (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -894,6 +901,7 @@ import Effect.Lamdera
 import Json.Decode
 import Json.Decode
 import Json.Encode
+import Duration exposing (Duration)
 
 setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
