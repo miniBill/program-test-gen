@@ -722,7 +722,7 @@ testCode includes startTime clients testIndex events =
                 ++ String.fromInt testIndex
                 ++ "\" (Time.millisToPosix "
                 ++ String.fromInt startTime
-                ++ ") config2"
+                ++ ") config"
                 ++ "\n"
         , indentation = 0
         , clientCount = 0
@@ -951,11 +951,6 @@ domain : Url
 domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
 
 
-config : Dict String Bytes -> TF.Config ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
-config httpData =
-    TF.Config Frontend.app_ Backend.app_ (handleHttpRequests httpData) handlePortToJs handleFileRequest handleMultiFileUpload domain
-
-
 stringToJson : String -> Json.Encode.Value
 stringToJson json =
     Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
@@ -974,11 +969,6 @@ portRequests =
         ++ """
     ]
         |> Dict.fromList
-
-
-handleFileRequest : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> FileUpload
-handleFileRequest _ =
-    UnhandledFileUpload
 
 
 {-| Please don't modify or rename this function -}
@@ -1006,18 +996,13 @@ handleHttpRequests httpData { currentRequest } =
             UnhandledHttpRequest
 
 
-handleMultiFileUpload : { data : TF.Data frontendModel backendModel, mimeTypes : List String } -> MultipleFilesUpload
-handleMultiFileUpload _ =
-    UnhandledMultiFileUpload
-
-
 {-| You can change parts of this function represented with `...`.
 The rest needs to remain unchanged in order for the test generator to be able to add new tests.
 
     tests : ... -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
     tests ... =
         let
-            config2 = ...
+            config = ...
 
             ...
         in
@@ -1027,8 +1012,15 @@ The rest needs to remain unchanged in order for the test generator to be able to
 tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests httpData =
     let
-        config2 =
-            config httpData
+        config =
+            TF.Config
+                Frontend.app_
+                Backend.app_
+                (handleHttpRequests httpData)
+                handlePortToJs
+                (\\_ -> UnhandledFileUpload)
+                (\\_ -> UnhandledMultiFileUpload)
+                domain
     in
     ["""
 
@@ -1212,34 +1204,34 @@ eventsView events =
                             Click mouseEvent ->
                                 case mouseEvent.targetId of
                                     Just id ->
-                                        "clicked on " ++ id
+                                        "Click " ++ id
 
                                     Nothing ->
-                                        "clicked on nothing"
+                                        "Click nothing"
 
                             Http _ ->
-                                "http request"
+                                "Http request"
 
                             Connect record ->
-                                record.sessionId ++ " connected"
+                                "Connected " ++ record.sessionId
 
                             ClickLink linkEvent ->
-                                "clicked link to " ++ linkEvent.path
+                                "Click link " ++ linkEvent.path
 
                             Paste pasteEvent ->
-                                "pasted text " ++ ellipsis pasteEvent.text
+                                "Pasted text " ++ ellipsis pasteEvent.text
 
                             Input inputEvent ->
-                                "text input " ++ ellipsis inputEvent.text
+                                "Text input " ++ ellipsis inputEvent.text
 
                             ResetBackend ->
-                                "test ended"
+                                "Test ended"
 
                             FromJsPort fromJsPortEvent ->
-                                "port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
+                                "Port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
 
                             HttpLocal { filepath } ->
-                                "loaded " ++ filepath
+                                "Loaded " ++ filepath
 
                             WindowResize { width, height } ->
                                 "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
@@ -1280,6 +1272,8 @@ eventsView events =
                             TouchEnd _ ->
                                 "Touch end"
                           )
+                            --++ " "
+                            --++ String.fromInt event.timestamp
                             |> Ui.text
                         ]
                 )
@@ -1288,7 +1282,8 @@ eventsView events =
                     [ Ui.width (Ui.px 240)
                     , Ui.Font.size 14
                     , Ui.paddingXY 8 0
-                    , Ui.clipWithEllipsis
+
+                    --, Ui.clipWithEllipsis
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
 
