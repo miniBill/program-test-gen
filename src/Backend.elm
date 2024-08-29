@@ -7,7 +7,6 @@ import AssocSet
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import RPC
-import Set
 import Types exposing (..)
 
 
@@ -56,7 +55,15 @@ updateFromFrontend sessionId clientId msg model =
                                 }
                                 model.sessions
                       }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
+                    , Lamdera.sendToFrontend
+                        clientId
+                        (LoadSessionResponse
+                            { history = session.history
+                            , includeScreenPos = session.includeScreenPos
+                            , includeClientPos = session.includeClientPos
+                            , includePagePos = session.includePagePos
+                            }
+                        )
                     )
 
                 Nothing ->
@@ -65,10 +72,21 @@ updateFromFrontend sessionId clientId msg model =
                         session =
                             { history = Array.empty
                             , connections = AssocSet.singleton clientId
+                            , includeScreenPos = False
+                            , includePagePos = True
+                            , includeClientPos = True
                             }
                     in
                     ( { model | sessions = AssocList.insert sessionName session model.sessions }
-                    , Lamdera.sendToFrontend clientId (LoadSessionResponse session.history)
+                    , Lamdera.sendToFrontend
+                        clientId
+                        (LoadSessionResponse
+                            { history = session.history
+                            , includeScreenPos = session.includeScreenPos
+                            , includeClientPos = session.includeClientPos
+                            , includePagePos = session.includePagePos
+                            }
+                        )
                     )
 
         ResetSessionRequest ->
@@ -100,6 +118,26 @@ updateFromFrontend sessionId clientId msg model =
                                 sessionName
                                 { session
                                     | history = Array.Extra.update index (\event -> { event | isHidden = isHidden }) session.history
+                                }
+                                model.sessions
+                      }
+                    , Cmd.none
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        SetIncludeScreenPageClientPos data ->
+            case getSessionByClientId clientId model of
+                Just ( sessionName, session ) ->
+                    ( { model
+                        | sessions =
+                            AssocList.insert
+                                sessionName
+                                { session
+                                    | includeClientPos = data.includeClientPos
+                                    , includePagePos = data.includePagePos
+                                    , includeScreenPos = data.includeScreenPos
                                 }
                                 model.sessions
                       }

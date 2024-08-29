@@ -6,7 +6,6 @@ import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Navigation
-import Duration exposing (Duration)
 import Html
 import Icons
 import Lamdera exposing (ClientId, SessionId)
@@ -21,6 +20,7 @@ import Ui
 import Ui.Anim
 import Ui.Font
 import Ui.Input
+import Ui.Prose
 import Url
 import Url.Parser
 
@@ -125,11 +125,44 @@ updateLoaded msg model =
 
         PressedCopyCode ->
             ( { model | copyCounter = model.copyCounter + 1 }
-            , Array.toList model.history |> List.filter (\event -> not event.isHidden) |> codegen |> copy_to_clipboard_to_js
+            , Array.toList model.history
+                |> List.filter (\event -> not event.isHidden)
+                |> codegen model
+                |> copy_to_clipboard_to_js
             )
 
         ElmUiMsg msg2 ->
             ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
+
+        ToggledIncludeScreenPos bool ->
+            ( { model | includeScreenPos = bool }
+            , SetIncludeScreenPageClientPos
+                { includeScreenPos = bool
+                , includePagePos = model.includePagePos
+                , includeClientPos = model.includeClientPos
+                }
+                |> Lamdera.sendToBackend
+            )
+
+        ToggledIncludeClientPos bool ->
+            ( { model | includeClientPos = bool }
+            , SetIncludeScreenPageClientPos
+                { includeScreenPos = model.includeScreenPos
+                , includePagePos = model.includePagePos
+                , includeClientPos = bool
+                }
+                |> Lamdera.sendToBackend
+            )
+
+        ToggledIncludePagePos bool ->
+            ( { model | includePagePos = bool }
+            , SetIncludeScreenPageClientPos
+                { includeScreenPos = model.includeScreenPos
+                , includePagePos = bool
+                , includeClientPos = model.includeClientPos
+                }
+                |> Lamdera.sendToBackend
+            )
 
 
 addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
@@ -185,9 +218,12 @@ updateFromBackend msg model =
                     ( LoadedSession
                         { key = loading.key
                         , sessionName = loading.sessionName
-                        , history = events
+                        , history = events.history
                         , copyCounter = 0
                         , elmUiState = Ui.Anim.init
+                        , includeScreenPos = events.includeScreenPos
+                        , includePagePos = events.includePagePos
+                        , includeClientPos = events.includeClientPos
                         }
                     , Cmd.none
                     )
@@ -434,17 +470,8 @@ dropPrefix prefix text =
         text
 
 
-boolToString : Bool -> String
-boolToString bool =
-    if bool then
-        "True"
-
-    else
-        "False"
-
-
-codegen : List Event -> String
-codegen events =
+codegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> List Event -> String
+codegen includes events =
     let
         clients : List ClientId
         clients =
@@ -453,14 +480,14 @@ codegen events =
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
                 |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
-                |> List.indexedMap (\index ( head, rest ) -> testCode clients index (head :: rest))
+                |> List.indexedMap (\index ( head, rest ) -> testCode includes head.timestamp clients index (head :: rest))
                 |> String.join "\n    ,"
     in
     setupCode events ++ tests ++ "\n    ]"
 
 
-testCode : List ClientId -> Int -> List Event -> String
-testCode clients testIndex events =
+testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> List ClientId -> Int -> List Event -> String
+testCode includes startTime clients testIndex events =
     List.foldl
         (\event { code, indentation, clientCount } ->
             let
@@ -606,56 +633,56 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
 
-                FromJsPort2 clientId _ ->
+                FromJsPort2 _ _ ->
                     { code = code
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerDown2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerDown" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerDown" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerUp2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerUp" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerUp" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerMove2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerMove" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerLeave2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerLeave" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerLeave" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerCancel2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerCancel" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOver2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerOver" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerOver" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerEnter2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerEnter" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerEnter" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOut2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen "pointerOut" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen includes "pointerOut" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -690,7 +717,13 @@ testCode clients testIndex events =
                     , clientCount = clientCount
                     }
         )
-        { code = " TF.start (config httpData) \"test " ++ String.fromInt testIndex ++ "\"\n"
+        { code =
+            " TF.start \"test"
+                ++ String.fromInt testIndex
+                ++ "\" (Time.millisToPosix "
+                ++ String.fromInt startTime
+                ++ ") config2"
+                ++ "\n"
         , indentation = 0
         , clientCount = 0
         }
@@ -732,22 +765,22 @@ touchCodegen funcName client a =
         ++ " ] }\n"
 
 
-pointerCodegen : String -> String -> PointerEvent -> String
-pointerCodegen funcName client a =
+pointerCodegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> String -> String -> PointerEvent -> String
+pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName client a =
     let
         options : List String
         options =
             List.filterMap
-                (\( name, x, y ) ->
-                    if x == a.offsetX && y == a.offsetY then
+                (\( name, include, ( x, y ) ) ->
+                    if (x == a.offsetX && y == a.offsetY) || not include then
                         Nothing
 
                     else
                         Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
                 )
-                [ ( "ScreenPos", a.screenX, a.screenY )
-                , ( "PagePos", a.pageX, a.pageY )
-                , ( "ClientPos", a.clientX, a.clientY )
+                [ ( "ScreenPos", includeScreenPos, ( a.screenX, a.screenY ) )
+                , ( "PagePos", includePagePos, ( a.pageX, a.pageY ) )
+                , ( "ClientPos", includeClientPos, ( a.clientX, a.clientY ) )
                 ]
                 ++ List.filterMap
                     identity
@@ -889,19 +922,19 @@ setupCode events =
     in
     """module MyTests exposing (main, setup, tests)
 
+import Backend
+import Bytes exposing (Bytes)
+import Dict exposing (Dict)
+import Duration exposing (Duration)
 import Effect.Browser.Dom as Dom
+import Effect.Lamdera
 import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
 import Frontend
-import Backend
-import Url exposing (Url)
-import Bytes exposing (Bytes)
-import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
-import Dict exposing (Dict)
-import Effect.Lamdera
-import Json.Decode
 import Json.Decode
 import Json.Encode
-import Duration exposing (Duration)
+import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
+import Url exposing (Url)
+
 
 setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
@@ -983,11 +1016,20 @@ The rest needs to remain unchanged in order for the test generator to be able to
 
     tests : ... -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
     tests ... =
+        let
+            config2 = ...
+
+            ...
+        in
         [ ...
         ]
 -}
 tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests httpData =
+    let
+        config2 =
+            config httpData
+    in
     ["""
 
 
@@ -1005,76 +1047,141 @@ view model =
                 Html.text "Loading session..."
 
             LoadedSession loaded ->
-                let
-                    eventsList : List Event
-                    eventsList =
-                        Array.toList loaded.history
-                in
                 Ui.Anim.layout
                     { options = []
                     , breakpoints = Nothing
                     , toMsg = ElmUiMsg
                     }
                     loaded.elmUiState
-                    [ Ui.Font.family [ Ui.Font.sansSerif ], Ui.padding 16, Ui.height Ui.fill ]
-                    (Ui.row
-                        [ Ui.height Ui.fill ]
-                        [ Ui.column
-                            [ Ui.height Ui.fill, Ui.width Ui.shrink, Ui.spacing 8 ]
-                            [ button PressedResetSession [ Ui.text "Reset" ]
-                            , eventsView eventsList
-                            ]
-                        , Ui.column
-                            [ Ui.height Ui.fill, Ui.spacing 8 ]
-                            [ Ui.row
-                                [ Ui.spacing 16 ]
-                                [ button
-                                    PressedCopyCode
-                                    [ Icons.copy
-                                    , if loaded.copyCounter > 0 then
-                                        Ui.text "Copied!"
-
-                                      else
-                                        Ui.text " Copy"
-                                    ]
-                                , Ui.el [ Ui.Font.size 14 ] (Ui.text "Press \"Reset Backend\" in lamdera live to start a new test")
-                                ]
-                            , List.filter (\event -> not event.isHidden) eventsList
-                                |> codegen
-                                |> Ui.text
-                                |> Ui.el
-                                    [ Ui.Font.family [ Ui.Font.monospace ]
-                                    , Ui.Font.size 12
-                                    , Ui.Font.exactWhitespace
-                                    , Ui.scrollable
-                                    ]
-                            ]
-                        ]
-                    )
+                    [ Ui.Font.family [ Ui.Font.sansSerif ], Ui.height Ui.fill ]
+                    (loadedView loaded)
         ]
     }
 
 
-button : msg -> List (Ui.Element msg) -> Ui.Element msg
-button msg content =
+loadedView : LoadedData -> Ui.Element FrontendMsg
+loadedView model =
+    let
+        eventsList : List Event
+        eventsList =
+            Array.toList model.history
+    in
     Ui.row
-        [ Ui.Input.button msg
-        , Ui.border 1
-        , Ui.borderColor (Ui.rgb 100 100 100)
-        , Ui.background (Ui.rgb 240 240 240)
-        , Ui.width Ui.shrink
-        , Ui.padding 8
-        , Ui.spacing 4
-        , Ui.rounded 4
+        [ Ui.height Ui.fill ]
+        [ Ui.column
+            [ Ui.height Ui.fill
+            , Ui.width Ui.shrink
+            , Ui.background (Ui.rgb 255 250 245)
+            , Ui.borderWith { left = 0, right = 1, top = 0, bottom = 0 }
+            , Ui.borderColor (Ui.rgb 245 240 235)
+            ]
+            [ Ui.row
+                []
+                [ Ui.el [ Ui.Font.bold, Ui.paddingWith { left = 8, right = 8, top = 8, bottom = 4 } ] (Ui.text "Event history")
+                , Ui.el
+                    [ Ui.Input.button PressedResetSession
+                    , Ui.border 1
+                    , Ui.borderColor (Ui.rgb 120 110 100)
+                    , Ui.background (Ui.rgb 240 235 230)
+                    , Ui.width Ui.shrink
+                    , Ui.height Ui.fill
+                    , Ui.paddingXY 8 4
+                    , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                    ]
+                    (Ui.text "Reset")
+                ]
+            , eventsView eventsList
+            ]
+        , Ui.column
+            [ Ui.height Ui.fill, Ui.spacing 0 ]
+            [ Ui.column
+                [ Ui.spacing 8, Ui.padding 8 ]
+                [ Ui.row
+                    [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
+                    [ Ui.text "Press "
+                    , Ui.el
+                        [ Ui.Font.color (Ui.rgb 238 238 238)
+                        , Ui.background (Ui.rgb 41 51 53)
+                        , Ui.Font.size 14
+                        , Ui.height Ui.fill
+                        , Ui.contentCenterY
+                        , Ui.paddingXY 4 0
+                        ]
+                        (Ui.text "Reset Backend")
+                    , Ui.text " in lamdera live to start a new test"
+                    ]
+                , Ui.column
+                    []
+                    [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.includeClientPos
+                    , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.includePagePos
+                    , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
+                    ]
+                ]
+            , Ui.el
+                [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
+                , Ui.borderColor (Ui.rgb 100 100 100)
+                , Ui.inFront
+                    (Ui.row
+                        [ Ui.Input.button PressedCopyCode
+                        , Ui.border 1
+                        , Ui.borderColor (Ui.rgb 100 100 100)
+                        , Ui.background (Ui.rgb 240 240 240)
+                        , Ui.width Ui.shrink
+                        , Ui.padding 4
+                        , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
+                        , Ui.alignRight
+                        , Ui.move { x = 0, y = -1, z = 0 }
+                        , Ui.Font.size 14
+                        , Ui.spacing 4
+                        ]
+                        [ Icons.copy
+                        , if model.copyCounter > 0 then
+                            Ui.text "Copied!"
+
+                          else
+                            Ui.text "Copy to clipboard"
+                        ]
+                    )
+                ]
+                Ui.none
+            , List.filter (\event -> not event.isHidden) eventsList
+                |> codegen model
+                |> Ui.text
+                |> Ui.el
+                    [ Ui.Font.family [ Ui.Font.monospace ]
+                    , Ui.Font.size 12
+                    , Ui.Font.exactWhitespace
+                    , Ui.scrollable
+                    , Ui.padding 8
+                    ]
+            ]
         ]
-        content
+
+
+simpleCheckbox : (Bool -> msg) -> String -> Bool -> Ui.Element msg
+simpleCheckbox msg text value =
+    let
+        { element, id } =
+            Ui.Input.label text [ Ui.Font.size 14, Ui.move { x = 0, y = 2, z = 0 } ] (Ui.text text)
+    in
+    Ui.row
+        [ Ui.spacing 4 ]
+        [ Ui.Input.checkbox
+            []
+            { onChange = msg
+            , icon = Nothing
+            , checked = value
+            , label = id
+            }
+        , element
+        ]
 
 
 eventsView : List Event -> Ui.Element FrontendMsg
 eventsView events =
     case events of
         [] ->
-            Ui.el [ Ui.width (Ui.px 300) ] (Ui.text "No events have arrived")
+            Ui.el [ Ui.width (Ui.px 240), Ui.padding 16 ] (Ui.text "No events have arrived")
 
         _ ->
             List.indexedMap
@@ -1143,20 +1250,8 @@ eventsView events =
                             PointerUp _ ->
                                 "Pointer up"
 
-                            PointerMove pointerEvent ->
-                                let
-                                    xyToString x y =
-                                        String.fromFloat x ++ "," ++ String.fromFloat y
-                                in
-                                "Pointer move (client "
-                                    ++ xyToString pointerEvent.clientX pointerEvent.clientY
-                                    ++ ") (offset "
-                                    ++ xyToString pointerEvent.offsetX pointerEvent.offsetY
-                                    ++ ") (screen "
-                                    ++ xyToString pointerEvent.screenX pointerEvent.screenX
-                                    ++ ") (page "
-                                    ++ xyToString pointerEvent.pageX pointerEvent.pageY
-                                    ++ ")"
+                            PointerMove _ ->
+                                "Pointer move"
 
                             PointerLeave _ ->
                                 "Pointer leave"
@@ -1190,12 +1285,12 @@ eventsView events =
                 )
                 events
                 |> Ui.column
-                    [ Ui.width (Ui.px 300)
-                    , Ui.scrollable
-                    , Ui.height Ui.fill
+                    [ Ui.width (Ui.px 240)
                     , Ui.Font.size 14
-                    , Ui.id eventsListContainer
+                    , Ui.paddingXY 8 0
+                    , Ui.clipWithEllipsis
                     ]
+                |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
 
 
 ellipsis : String -> String

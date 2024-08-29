@@ -26,6 +26,9 @@ type alias LoadedData =
     , history : Array Event
     , copyCounter : Int
     , elmUiState : Ui.Anim.State
+    , includeClientPos : Bool
+    , includePagePos : Bool
+    , includeScreenPos : Bool
     }
 
 
@@ -37,6 +40,9 @@ type alias BackendModel =
 type alias Session =
     { history : Array Event
     , connections : AssocSet.Set ClientId
+    , includeClientPos : Bool
+    , includePagePos : Bool
+    , includeScreenPos : Bool
     }
 
 
@@ -53,12 +59,16 @@ type FrontendMsg
     | PressedSetEventVisibility Int Bool
     | PressedCopyCode
     | ElmUiMsg Ui.Anim.Msg
+    | ToggledIncludeScreenPos Bool
+    | ToggledIncludeClientPos Bool
+    | ToggledIncludePagePos Bool
 
 
 type ToBackend
     = LoadSessionRequest SessionName
     | ResetSessionRequest
     | SetEventVisibilityRequest { index : Int, isHidden : Bool }
+    | SetIncludeScreenPageClientPos { includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool }
 
 
 type BackendMsg
@@ -66,7 +76,7 @@ type BackendMsg
 
 
 type ToFrontend
-    = LoadSessionResponse (Array Event)
+    = LoadSessionResponse { history : Array Event, includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool }
     | SessionUpdate Event
     | ResetSession
 

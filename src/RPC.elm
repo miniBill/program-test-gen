@@ -297,7 +297,7 @@ lamdera_handleEndpoints _ args model =
         "event" ->
             case args.body of
                 BodyString json ->
-                    case Codec.decodeString eventEndpointCodec json |> Debug.log "result" of
+                    case Codec.decodeString eventEndpointCodec json of
                         Ok { sessionName, event } ->
                             let
                                 model2 : BackendModel
@@ -314,6 +314,9 @@ lamdera_handleEndpoints _ args model =
                                                         Nothing ->
                                                             { history = Array.fromList [ event ]
                                                             , connections = AssocSet.empty
+                                                            , includeClientPos = True
+                                                            , includePagePos = True
+                                                            , includeScreenPos = False
                                                             }
                                                     )
                                                         |> Just
