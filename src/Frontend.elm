@@ -1282,8 +1282,8 @@ eventsView events =
                     [ Ui.width (Ui.px 240)
                     , Ui.Font.size 14
                     , Ui.paddingXY 8 0
-
-                    --, Ui.clipWithEllipsis
+                    , Ui.clipWithEllipsis
+                    , Ui.paddingWith { left = 0, right = 0, top = 0, bottom = 8 }
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
 
