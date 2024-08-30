@@ -44,7 +44,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder a value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -117,6 +117,9 @@ eventTypeCodec =
 
                 Types.TouchEnd arg0 ->
                     touchEndEncoder arg0
+
+                Types.CheckView arg0 ->
+                    a arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -142,7 +145,15 @@ eventTypeCodec =
         |> Codec.variant1 "TouchCancel" Types.TouchCancel touchEventCodec
         |> Codec.variant1 "TouchMove" Types.TouchMove touchEventCodec
         |> Codec.variant1 "TouchEnd" Types.TouchEnd touchEventCodec
+        |> Codec.variant1 "CheckView" Types.CheckView checkViewCodec
         |> Codec.buildCustom
+
+
+checkViewCodec : Codec Types.CheckViewEvent
+checkViewCodec =
+    Codec.object Types.CheckViewEvent
+        |> Codec.field "selection" .selection (Codec.list Codec.string)
+        |> Codec.buildObject
 
 
 pointerEventCodec : Codec Types.PointerEvent

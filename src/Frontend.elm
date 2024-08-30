@@ -275,9 +275,10 @@ type EventType2
     | TouchCancel2 ClientId TouchEvent
     | TouchMove2 ClientId TouchEvent
     | TouchEnd2 ClientId TouchEvent
-    | FromJsPort2 ClientId FromJsPortEvent
+    | FromJsPort2 ClientId { port_ : String, data : String }
     | WindowResize2 ClientId WindowResizeEvent
     | SimulateTime Int
+    | CheckView2 ClientId CheckViewEvent
 
 
 eventsToEvent2 : List Event -> List EventType2
@@ -421,13 +422,26 @@ eventsToEvent2 events =
                     state
 
                 ( FromJsPort fromJsPort, _ ) ->
-                    state
+                    case fromJsPort.triggeredFromPort of
+                        Just _ ->
+                            state
 
-                --{ previousEvent = Just { eventType = FromJsPort2 clientId fromJsPort, time = timestamp }
-                --, rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                --}
+                        Nothing ->
+                            { previousEvent =
+                                { eventType = FromJsPort2 clientId { port_ = fromJsPort.port_, data = fromJsPort.data }
+                                , time = timestamp
+                                }
+                                    |> Just
+                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                            }
+
                 ( WindowResize resizeEvent, _ ) ->
                     { previousEvent = Just { eventType = WindowResize2 clientId resizeEvent, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                ( CheckView checkView, _ ) ->
+                    { previousEvent = Just { eventType = CheckView2 clientId checkView, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
@@ -514,7 +528,7 @@ testCode includes startTime clients testIndex events =
                     in
                     { code =
                         code
-                            ++ (indent ++ "    |> TF.connectFrontend\n")
+                            ++ (indent ++ "    |> T.connectFrontend\n")
                             ++ (indent ++ "        (Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
                             ++ (indent ++ "        (Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
                             ++ (indent ++ "        { width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
@@ -628,7 +642,16 @@ testCode includes startTime clients testIndex events =
                     }
 
                 Input2 clientId { targetId, text } ->
-                    { code = code ++ indent ++ "    |> " ++ client clientId ++ ".inputText " ++ targetIdFunc targetId ++ " \"" ++ text ++ "\"\n"
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".inputText "
+                            ++ targetIdFunc targetId
+                            ++ " \""
+                            ++ text
+                            ++ "\"\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -712,13 +735,26 @@ testCode includes startTime clients testIndex events =
                     }
 
                 SimulateTime duration ->
-                    { code = code ++ indent ++ "    |> TF.simulateTime (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
+                    { code = code ++ indent ++ "    |> T.simulateTime (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                CheckView2 clientId checkViewEvent ->
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".checkView (\\single -> Test.Html.Query.has [ "
+                            ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
+                            ++ " ]\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
         )
         { code =
-            " TF.start \"test"
+            " T.start \"test"
                 ++ String.fromInt testIndex
                 ++ "\" (Time.millisToPosix "
                 ++ String.fromInt startTime
@@ -928,23 +964,25 @@ import Dict exposing (Dict)
 import Duration exposing (Duration)
 import Effect.Browser.Dom as Dom
 import Effect.Lamdera
-import Effect.Test as TF exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
+import Effect.Test as T exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
 import Frontend
 import Json.Decode
 import Json.Encode
+import Test.Html.Query
+import Test.Html.Selector as Selector
 import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
 import Url exposing (Url)
 
 
-setup : TF.ViewerWith (List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
+setup : T.ViewerWith (List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
-    TF.viewerWith tests
-        |> TF.addBytesFiles (Dict.values httpRequests)
+    T.viewerWith tests
+        |> T.addBytesFiles (Dict.values httpRequests)
 
 
-main : Program () (TF.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (TF.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+main : Program () (T.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (T.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 main =
-    TF.startViewer setup
+    T.startViewer setup
 
 
 domain : Url
@@ -956,7 +994,7 @@ stringToJson json =
     Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
 
 
-handlePortToJs : { currentRequest : TF.PortToJs, data : TF.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
+handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
     Dict.get currentRequest.portName portRequests
 
@@ -981,7 +1019,7 @@ httpRequests =
         |> Dict.fromList
 
 
-handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : TF.Data FrontendModel BackendModel } -> HttpResponse
+handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
 handleHttpRequests httpData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
         Just filepath ->
@@ -999,7 +1037,7 @@ handleHttpRequests httpData { currentRequest } =
 {-| You can change parts of this function represented with `...`.
 The rest needs to remain unchanged in order for the test generator to be able to add new tests.
 
-    tests : ... -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+    tests : ... -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
     tests ... =
         let
             config = ...
@@ -1009,11 +1047,11 @@ The rest needs to remain unchanged in order for the test generator to be able to
         [ ...
         ]
 -}
-tests : Dict String Bytes -> List (TF.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests : Dict String Bytes -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests httpData =
     let
         config =
-            TF.Config
+            T.Config
                 Frontend.app_
                 Backend.app_
                 (handleHttpRequests httpData)
@@ -1076,8 +1114,6 @@ loadedView model =
                     , Ui.borderColor (Ui.rgb 120 110 100)
                     , Ui.background (Ui.rgb 240 235 230)
                     , Ui.width Ui.shrink
-                    , Ui.height Ui.fill
-                    , Ui.paddingXY 8 4
                     , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
                     ]
                     (Ui.text "Reset")
@@ -1088,18 +1124,17 @@ loadedView model =
             [ Ui.height Ui.fill, Ui.spacing 0 ]
             [ Ui.column
                 [ Ui.spacing 8, Ui.padding 8 ]
-                [ Ui.row
+                [ Ui.Prose.paragraph
                     [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
                     [ Ui.text "Press "
                     , Ui.el
                         [ Ui.Font.color (Ui.rgb 238 238 238)
                         , Ui.background (Ui.rgb 41 51 53)
                         , Ui.Font.size 14
-                        , Ui.height Ui.fill
                         , Ui.contentCenterY
-                        , Ui.paddingXY 4 0
+                        , Ui.padding 4
                         ]
-                        (Ui.text "Reset Backend")
+                        (Ui.text "Reset\u{00A0}Backend")
                     , Ui.text " in lamdera live to start a new test"
                     ]
                 , Ui.column
@@ -1271,6 +1306,9 @@ eventsView events =
 
                             TouchEnd _ ->
                                 "Touch end"
+
+                            CheckView _ ->
+                                "Check view"
                           )
                             --++ " "
                             --++ String.fromInt event.timestamp
@@ -1283,7 +1321,7 @@ eventsView events =
                     , Ui.Font.size 14
                     , Ui.paddingXY 8 0
                     , Ui.clipWithEllipsis
-                    , Ui.paddingWith { left = 0, right = 0, top = 0, bottom = 8 }
+                    , Ui.paddingWith { left = 0, right = 0, top = 4, bottom = 8 }
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
 

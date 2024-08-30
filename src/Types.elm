@@ -114,6 +114,12 @@ type EventType
     | TouchCancel TouchEvent
     | TouchMove TouchEvent
     | TouchEnd TouchEvent
+    | CheckView CheckViewEvent
+
+
+type alias CheckViewEvent =
+    { selection : List String
+    }
 
 
 type alias PointerEvent =
