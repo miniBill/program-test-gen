@@ -6,13 +6,17 @@ import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Navigation
+import Dict
+import Elm.Parser
+import Elm.Syntax.Declaration exposing (Declaration(..))
+import Elm.Syntax.Expression exposing (Expression(..))
+import Elm.Syntax.Node as Node exposing (Node(..))
 import Html
 import Icons
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Maybe.Extra
 import Random
-import Set
 import Sha256
 import Task
 import Types exposing (..)
@@ -487,21 +491,22 @@ dropPrefix prefix text =
 codegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> List Event -> String
 codegen includes events =
     let
-        clients : List ClientId
-        clients =
-            List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
-
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
                 |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
-                |> List.indexedMap (\index ( head, rest ) -> testCode includes head.timestamp clients index (head :: rest))
+                |> List.indexedMap (\index ( head, rest ) -> testCode includes head.timestamp index (head :: rest))
                 |> String.join "\n    ,"
     in
     setupCode events ++ tests ++ "\n    ]"
 
 
-testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> List ClientId -> Int -> List Event -> String
-testCode includes startTime clients testIndex events =
+testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> Int -> List Event -> String
+testCode includes startTime testIndex events =
+    let
+        clients : List ClientId
+        clients =
+            List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
+    in
     List.foldl
         (\event { code, indentation, clientCount } ->
             let
@@ -735,7 +740,7 @@ testCode includes startTime clients testIndex events =
                     }
 
                 SimulateTime duration ->
-                    { code = code ++ indent ++ "    |> T.simulateTime (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
+                    { code = code ++ indent ++ "    |> T.wait (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -814,9 +819,9 @@ pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName c
                     else
                         Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
                 )
-                [ ( "ScreenPos", includeScreenPos, ( a.screenX, a.screenY ) )
-                , ( "PagePos", includePagePos, ( a.pageX, a.pageY ) )
-                , ( "ClientPos", includeClientPos, ( a.clientX, a.clientY ) )
+                [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
+                , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
+                , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
                 ]
                 ++ List.filterMap
                     identity
@@ -888,38 +893,87 @@ pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName c
 setupCode : List Event -> String
 setupCode events =
     let
+        latestCode : Maybe String
+        latestCode =
+            List.Extra.findMap
+                (\{ eventType } ->
+                    case eventType of
+                        Connect { code } ->
+                            code
+
+                        _ ->
+                            Nothing
+                )
+                (List.reverse events)
+
+        existingHttpRequests : List ( String, String )
+        existingHttpRequests =
+            case Maybe.map (String.split "\nhttpRequests =") latestCode of
+                Just [ _, rest ] ->
+                    case String.split "|> Dict.fromList" rest of
+                        listText :: _ ->
+                            case Elm.Parser.parseToFile ("module A exposing (..)\nhttpRequests =\n   " ++ listText) of
+                                Ok ast ->
+                                    case ast.declarations of
+                                        [ Node _ (FunctionDeclaration func) ] ->
+                                            case Node.value func.declaration |> .expression of
+                                                Node _ (ListExpr requests) ->
+                                                    List.filterMap
+                                                        (\(Node _ request) ->
+                                                            case request of
+                                                                TupledExpression [ Node _ (Literal a), Node _ (Literal b) ] ->
+                                                                    Just ( a, b )
+
+                                                                _ ->
+                                                                    Nothing
+                                                        )
+                                                        requests
+
+                                                _ ->
+                                                    []
+
+                                        _ ->
+                                            []
+
+                                Err _ ->
+                                    []
+
+                        [] ->
+                            []
+
+                _ ->
+                    []
+
         httpRequests : String
         httpRequests =
             List.filterMap
                 (\event ->
                     case event.eventType of
                         Http http ->
-                            { http | url = dropPrefix "http://localhost:8001/" http.url } |> Just
+                            ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
 
                         _ ->
                             Nothing
                 )
                 events
-                |> List.Extra.uniqueBy (\a -> ( a.method, a.url ))
-                |> List.map (\http -> "(\"" ++ http.method ++ "_" ++ http.url ++ "\", \"" ++ http.filepath ++ "\")")
-                |> (\a -> a ++ localRequests)
+                |> (\a -> existingHttpRequests ++ a ++ localRequests)
+                |> Dict.fromList
+                |> Dict.toList
+                |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
                 |> String.join "\n    , "
 
-        localRequests : List String
+        localRequests : List ( String, String )
         localRequests =
             List.filterMap
                 (\event ->
                     case event.eventType of
                         HttpLocal { filepath } ->
-                            Just filepath
+                            Just ( "GET_" ++ filepath, "/public" ++ filepath )
 
                         _ ->
                             Nothing
                 )
                 events
-                |> Set.fromList
-                |> Set.toList
-                |> List.map (\filepath -> "(\"GET_" ++ filepath ++ "\", \"/public" ++ filepath ++ "\")")
 
         portRequests : String
         portRequests =
@@ -970,6 +1024,7 @@ import Json.Decode
 import Json.Encode
 import Test.Html.Query
 import Test.Html.Selector as Selector
+import Time
 import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
 import Url exposing (Url)
 
@@ -1310,8 +1365,8 @@ eventsView events =
                             CheckView _ ->
                                 "Check view"
                           )
-                            --++ " "
-                            --++ String.fromInt event.timestamp
+                            ++ " "
+                            ++ String.fromInt event.timestamp
                             |> Ui.text
                         ]
                 )
@@ -1320,7 +1375,8 @@ eventsView events =
                     [ Ui.width (Ui.px 240)
                     , Ui.Font.size 14
                     , Ui.paddingXY 8 0
-                    , Ui.clipWithEllipsis
+
+                    --, Ui.clipWithEllipsis
                     , Ui.paddingWith { left = 0, right = 0, top = 4, bottom = 8 }
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
