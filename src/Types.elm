@@ -29,6 +29,8 @@ type alias LoadedData =
     , includeClientPos : Bool
     , includePagePos : Bool
     , includeScreenPos : Bool
+    , mouseDownOnEvent : Bool
+    , previousHttpRequests : List ( String, String )
     }
 
 
@@ -56,12 +58,15 @@ type FrontendMsg
     | PressedResetSession
     | GotRandomSessionName SessionName
     | ScrolledToBottom
-    | PressedSetEventVisibility Int Bool
+    | MouseDownOnEvent Int Bool
+    | MouseEnterOnEvent Int Bool
     | PressedCopyCode
     | ElmUiMsg Ui.Anim.Msg
     | ToggledIncludeScreenPos Bool
     | ToggledIncludeClientPos Bool
     | ToggledIncludePagePos Bool
+    | MouseUp
+    | PressedEvent
 
 
 type ToBackend

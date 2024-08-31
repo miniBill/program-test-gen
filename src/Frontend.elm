@@ -1,10 +1,10 @@
 port module Frontend exposing (addEvent, app)
 
 import Array exposing (Array)
-import Array.Extra
 import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
+import Browser.Events
 import Browser.Navigation
 import Dict
 import Elm.Parser
@@ -12,7 +12,9 @@ import Elm.Syntax.Declaration exposing (Declaration(..))
 import Elm.Syntax.Expression exposing (Expression(..))
 import Elm.Syntax.Node as Node exposing (Node(..))
 import Html
+import Html.Attributes
 import Icons
+import Json.Decode
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Maybe.Extra
@@ -22,6 +24,7 @@ import Task
 import Types exposing (..)
 import Ui
 import Ui.Anim
+import Ui.Events
 import Ui.Font
 import Ui.Input
 import Ui.Prose
@@ -39,7 +42,7 @@ app =
         , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = \_ -> Browser.Events.onMouseUp (Json.Decode.succeed MouseUp)
         , view = view
         }
 
@@ -95,6 +98,22 @@ sessionNameToString (SessionName sessionName) =
     sessionName
 
 
+setEventVisibility : Int -> Bool -> LoadedData -> ( LoadedData, Cmd frontendMsg )
+setEventVisibility index isHidden model =
+    case Array.get index model.history of
+        Just event ->
+            if event.isHidden == isHidden then
+                ( model, Cmd.none )
+
+            else
+                ( { model | history = Array.set index { event | isHidden = isHidden } model.history }
+                , SetEventVisibilityRequest { index = index, isHidden = isHidden } |> Lamdera.sendToBackend
+                )
+
+        Nothing ->
+            ( model, Cmd.none )
+
+
 updateLoaded : FrontendMsg -> LoadedData -> ( LoadedData, Cmd FrontendMsg )
 updateLoaded msg model =
     case msg of
@@ -122,10 +141,15 @@ updateLoaded msg model =
         ScrolledToBottom ->
             ( model, Cmd.none )
 
-        PressedSetEventVisibility index isHidden ->
-            ( { model | history = Array.Extra.update index (\event -> { event | isHidden = isHidden }) model.history }
-            , SetEventVisibilityRequest { index = index, isHidden = isHidden } |> Lamdera.sendToBackend
-            )
+        MouseDownOnEvent index isHidden ->
+            setEventVisibility index isHidden { model | mouseDownOnEvent = True }
+
+        MouseEnterOnEvent index isHidden ->
+            if model.mouseDownOnEvent then
+                setEventVisibility index isHidden model
+
+            else
+                ( model, Cmd.none )
 
         PressedCopyCode ->
             ( { model | copyCounter = model.copyCounter + 1 }
@@ -167,6 +191,12 @@ updateLoaded msg model =
                 }
                 |> Lamdera.sendToBackend
             )
+
+        MouseUp ->
+            ( { model | mouseDownOnEvent = False }, Cmd.none )
+
+        PressedEvent ->
+            ( model, Cmd.none )
 
 
 addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
@@ -228,6 +258,20 @@ updateFromBackend msg model =
                         , includeScreenPos = events.includeScreenPos
                         , includePagePos = events.includePagePos
                         , includeClientPos = events.includeClientPos
+                        , mouseDownOnEvent = False
+                        , previousHttpRequests =
+                            Array.toList events.history
+                                |> List.reverse
+                                |> List.Extra.findMap
+                                    (\event ->
+                                        case event.eventType of
+                                            Connect { code } ->
+                                                getPreviousHttpRequests code |> Just
+
+                                            _ ->
+                                                Nothing
+                                    )
+                                |> Maybe.withDefault []
                         }
                     , Cmd.none
                     )
@@ -238,7 +282,17 @@ updateFromBackend msg model =
         SessionUpdate event ->
             case model of
                 LoadedSession loaded ->
-                    ( LoadedSession (addEvent event loaded)
+                    ( { loaded
+                        | previousHttpRequests =
+                            case event.eventType of
+                                Connect { code } ->
+                                    getPreviousHttpRequests code
+
+                                _ ->
+                                    loaded.previousHttpRequests
+                      }
+                        |> addEvent event
+                        |> LoadedSession
                     , Browser.Dom.setViewportOf eventsListContainer 0 99999
                         |> Task.attempt (\_ -> ScrolledToBottom)
                     )
@@ -253,6 +307,45 @@ updateFromBackend msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+
+getPreviousHttpRequests : Maybe String -> List ( String, String )
+getPreviousHttpRequests code =
+    case Maybe.map (String.split "\nhttpRequests =") code of
+        Just [ _, rest ] ->
+            case String.split "|> Dict.fromList" rest of
+                listText :: _ ->
+                    case Elm.Parser.parseToFile ("module A exposing (..)\nhttpRequests =\n   " ++ listText) of
+                        Ok ast ->
+                            case ast.declarations of
+                                [ Node _ (FunctionDeclaration func) ] ->
+                                    case Node.value func.declaration |> .expression of
+                                        Node _ (ListExpr requests) ->
+                                            List.filterMap
+                                                (\(Node _ request) ->
+                                                    case request of
+                                                        TupledExpression [ Node _ (Literal a), Node _ (Literal b) ] ->
+                                                            Just ( a, b )
+
+                                                        _ ->
+                                                            Nothing
+                                                )
+                                                requests
+
+                                        _ ->
+                                            []
+
+                                _ ->
+                                    []
+
+                        Err _ ->
+                            []
+
+                [] ->
+                    []
+
+        _ ->
+            []
 
 
 eventsListContainer : String
@@ -488,7 +581,7 @@ dropPrefix prefix text =
         text
 
 
-codegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> List Event -> String
+codegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool, previousHttpRequests : List ( String, String ) } -> List Event -> String
 codegen includes events =
     let
         tests =
@@ -497,7 +590,7 @@ codegen includes events =
                 |> List.indexedMap (\index ( head, rest ) -> testCode includes head.timestamp index (head :: rest))
                 |> String.join "\n    ,"
     in
-    setupCode events ++ tests ++ "\n    ]"
+    setupCode includes.previousHttpRequests events ++ tests ++ "\n    ]"
 
 
 testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> Int -> List Event -> String
@@ -890,60 +983,9 @@ pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName c
         ++ " ]\n"
 
 
-setupCode : List Event -> String
-setupCode events =
+setupCode : List ( String, String ) -> List Event -> String
+setupCode existingHttpRequests events =
     let
-        latestCode : Maybe String
-        latestCode =
-            List.Extra.findMap
-                (\{ eventType } ->
-                    case eventType of
-                        Connect { code } ->
-                            code
-
-                        _ ->
-                            Nothing
-                )
-                (List.reverse events)
-
-        existingHttpRequests : List ( String, String )
-        existingHttpRequests =
-            case Maybe.map (String.split "\nhttpRequests =") latestCode of
-                Just [ _, rest ] ->
-                    case String.split "|> Dict.fromList" rest of
-                        listText :: _ ->
-                            case Elm.Parser.parseToFile ("module A exposing (..)\nhttpRequests =\n   " ++ listText) of
-                                Ok ast ->
-                                    case ast.declarations of
-                                        [ Node _ (FunctionDeclaration func) ] ->
-                                            case Node.value func.declaration |> .expression of
-                                                Node _ (ListExpr requests) ->
-                                                    List.filterMap
-                                                        (\(Node _ request) ->
-                                                            case request of
-                                                                TupledExpression [ Node _ (Literal a), Node _ (Literal b) ] ->
-                                                                    Just ( a, b )
-
-                                                                _ ->
-                                                                    Nothing
-                                                        )
-                                                        requests
-
-                                                _ ->
-                                                    []
-
-                                        _ ->
-                                            []
-
-                                Err _ ->
-                                    []
-
-                        [] ->
-                            []
-
-                _ ->
-                    []
-
         httpRequests : String
         httpRequests =
             List.filterMap
@@ -1268,8 +1310,94 @@ eventsView events =
         _ ->
             List.indexedMap
                 (\index event ->
+                    let
+                        text : String
+                        text =
+                            case event.eventType of
+                                KeyDown keyEvent ->
+                                    keyEvent.key ++ " key down"
+
+                                KeyUp keyEvent ->
+                                    keyEvent.key ++ " key up"
+
+                                Click mouseEvent ->
+                                    case mouseEvent.targetId of
+                                        Just id ->
+                                            "Click " ++ id
+
+                                        Nothing ->
+                                            "Click nothing"
+
+                                Http _ ->
+                                    "Http request"
+
+                                Connect record ->
+                                    "Connected " ++ record.sessionId
+
+                                ClickLink linkEvent ->
+                                    "Click link " ++ linkEvent.path
+
+                                Paste pasteEvent ->
+                                    "Pasted text " ++ ellipsis pasteEvent.text
+
+                                Input inputEvent ->
+                                    "Text input " ++ ellipsis inputEvent.text
+
+                                ResetBackend ->
+                                    "Test ended"
+
+                                FromJsPort fromJsPortEvent ->
+                                    "Port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
+
+                                HttpLocal { filepath } ->
+                                    "Loaded " ++ filepath
+
+                                WindowResize { width, height } ->
+                                    "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
+
+                                PointerDown _ ->
+                                    "Pointer down"
+
+                                PointerUp _ ->
+                                    "Pointer up"
+
+                                PointerMove _ ->
+                                    "Pointer move"
+
+                                PointerLeave _ ->
+                                    "Pointer leave"
+
+                                PointerCancel _ ->
+                                    "Pointer cancel"
+
+                                PointerOver _ ->
+                                    "Pointer over"
+
+                                PointerEnter _ ->
+                                    "Pointer enter"
+
+                                PointerOut _ ->
+                                    "Pointer out"
+
+                                TouchStart _ ->
+                                    "Touch start"
+
+                                TouchCancel _ ->
+                                    "Touch cancel"
+
+                                TouchMove _ ->
+                                    "Touch move"
+
+                                TouchEnd _ ->
+                                    "Touch end"
+
+                                CheckView _ ->
+                                    "Check view"
+                    in
                     Ui.row
-                        [ Ui.Input.button (PressedSetEventVisibility index (not event.isHidden))
+                        [ Ui.Input.button PressedEvent
+                        , Ui.Events.onMouseDown (MouseDownOnEvent index (not event.isHidden))
+                        , Ui.Events.onMouseEnter (MouseEnterOnEvent index (not event.isHidden))
                         , Ui.spacing 4
                         , Ui.Font.color
                             (if event.isHidden then
@@ -1278,96 +1406,14 @@ eventsView events =
                              else
                                 Ui.rgb 0 0 0
                             )
+                        , Ui.htmlAttribute (Html.Attributes.title text)
                         ]
                         [ if event.isHidden then
                             Icons.eyeClosed
 
                           else
                             Icons.eye
-                        , (case event.eventType of
-                            KeyDown keyEvent ->
-                                keyEvent.key ++ " key down"
-
-                            KeyUp keyEvent ->
-                                keyEvent.key ++ " key up"
-
-                            Click mouseEvent ->
-                                case mouseEvent.targetId of
-                                    Just id ->
-                                        "Click " ++ id
-
-                                    Nothing ->
-                                        "Click nothing"
-
-                            Http _ ->
-                                "Http request"
-
-                            Connect record ->
-                                "Connected " ++ record.sessionId
-
-                            ClickLink linkEvent ->
-                                "Click link " ++ linkEvent.path
-
-                            Paste pasteEvent ->
-                                "Pasted text " ++ ellipsis pasteEvent.text
-
-                            Input inputEvent ->
-                                "Text input " ++ ellipsis inputEvent.text
-
-                            ResetBackend ->
-                                "Test ended"
-
-                            FromJsPort fromJsPortEvent ->
-                                "Port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
-
-                            HttpLocal { filepath } ->
-                                "Loaded " ++ filepath
-
-                            WindowResize { width, height } ->
-                                "Window resized w:" ++ String.fromInt width ++ " h:" ++ String.fromInt height
-
-                            PointerDown _ ->
-                                "Pointer down"
-
-                            PointerUp _ ->
-                                "Pointer up"
-
-                            PointerMove _ ->
-                                "Pointer move"
-
-                            PointerLeave _ ->
-                                "Pointer leave"
-
-                            PointerCancel _ ->
-                                "Pointer cancel"
-
-                            PointerOver _ ->
-                                "Pointer over"
-
-                            PointerEnter _ ->
-                                "Pointer enter"
-
-                            PointerOut _ ->
-                                "Pointer out"
-
-                            TouchStart _ ->
-                                "Touch start"
-
-                            TouchCancel _ ->
-                                "Touch cancel"
-
-                            TouchMove _ ->
-                                "Touch move"
-
-                            TouchEnd _ ->
-                                "Touch end"
-
-                            CheckView _ ->
-                                "Check view"
-                          )
-                            ++ " "
-                            ++ String.fromInt event.timestamp
-                            |> Ui.text
+                        , Ui.text text
                         ]
                 )
                 events
@@ -1375,8 +1421,7 @@ eventsView events =
                     [ Ui.width (Ui.px 240)
                     , Ui.Font.size 14
                     , Ui.paddingXY 8 0
-
-                    --, Ui.clipWithEllipsis
+                    , Ui.clipWithEllipsis
                     , Ui.paddingWith { left = 0, right = 0, top = 4, bottom = 8 }
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
