@@ -216,9 +216,9 @@ addEvent event model =
                         _ ->
                             False
             }
-    in
-    { model
-        | history =
+
+        history2 : Array Event
+        history2 =
             case Array.get (Array.length model.history - 1) model.history of
                 Just last ->
                     if event2.timestamp - last.timestamp < 0 then
@@ -232,6 +232,43 @@ addEvent event model =
 
                 Nothing ->
                     Array.push event2 model.history
+    in
+    { model
+        | history =
+            Array.foldr
+                (\item state ->
+                    case state.latestEvent of
+                        Just { timestamp, previous } ->
+                            if timestamp - item.timestamp > 2000 then
+                                state
+
+                            else
+                                { latestEvent =
+                                    Just
+                                        { timestamp = timestamp
+                                        , previous =
+                                            if item.isHidden then
+                                                previous
+
+                                            else
+                                                item
+                                        }
+                                , array =
+                                    case ( previous.eventType, item.eventType, previous.clientId == item.clientId ) of
+                                        ( Input _, Input _, True ) ->
+                                            Array.set state.index { item | isHidden = True } state.array
+
+                                        _ ->
+                                            state.array
+                                , index = state.index - 1
+                                }
+
+                        Nothing ->
+                            { state | latestEvent = Just { timestamp = item.timestamp, previous = item }, index = state.index - 1 }
+                )
+                { index = Array.length history2 - 1, latestEvent = Nothing, array = history2 }
+                history2
+                |> .array
     }
 
 
@@ -382,93 +419,88 @@ eventsToEvent2 : List Event -> List EventType2
 eventsToEvent2 events =
     List.foldl
         (\{ clientId, eventType, timestamp } state ->
-            case ( eventType, Maybe.map .eventType state.previousEvent ) of
-                ( Input input, Just (Input2 _ _) ) ->
-                    { previousEvent = Just { eventType = Input2 clientId input, time = timestamp }
-                    , rest = state.rest
-                    }
-
-                ( Input input, _ ) ->
+            case eventType of
+                Input input ->
                     { previousEvent = Just { eventType = Input2 clientId input, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( KeyDown keyDown, _ ) ->
+                KeyDown keyDown ->
                     { previousEvent = Just { eventType = KeyDown2 clientId keyDown, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( KeyUp keyUp, _ ) ->
+                KeyUp keyUp ->
                     { previousEvent = Just { eventType = KeyUp2 clientId keyUp, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerDown a, _ ) ->
+                PointerDown a ->
                     { previousEvent = Just { eventType = PointerDown2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerUp a, _ ) ->
+                PointerUp a ->
                     { previousEvent = Just { eventType = PointerUp2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerMove a, _ ) ->
+                PointerMove a ->
                     { previousEvent = Just { eventType = PointerMove2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerLeave a, _ ) ->
+                PointerLeave a ->
                     { previousEvent = Just { eventType = PointerLeave2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerCancel a, _ ) ->
+                PointerCancel a ->
                     { previousEvent = Just { eventType = PointerCancel2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerOver a, _ ) ->
+                PointerOver a ->
                     { previousEvent = Just { eventType = PointerOver2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerEnter a, _ ) ->
+                PointerEnter a ->
                     { previousEvent = Just { eventType = PointerEnter2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( PointerOut a, _ ) ->
+                PointerOut a ->
                     { previousEvent = Just { eventType = PointerOut2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( TouchStart a, _ ) ->
+                TouchStart a ->
                     { previousEvent = Just { eventType = TouchStart2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( TouchCancel a, _ ) ->
+                TouchCancel a ->
                     { previousEvent = Just { eventType = TouchCancel2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( TouchMove a, _ ) ->
+                TouchMove a ->
                     { previousEvent = Just { eventType = TouchMove2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( TouchEnd a, _ ) ->
+                TouchEnd a ->
                     { previousEvent = Just { eventType = TouchEnd2 clientId a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( Connect connect, _ ) ->
+                Connect connect ->
                     { previousEvent = Just { eventType = Connect2 clientId connect, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( Click mouseEvent, _ ) ->
+                Click mouseEvent ->
                     case mouseEvent.targetId of
                         Just targetId ->
                             { previousEvent = Just { eventType = Click2 clientId { targetId = targetId }, time = timestamp }
@@ -478,34 +510,18 @@ eventsToEvent2 events =
                         Nothing ->
                             state
 
-                ( ClickLink linkEvent, _ ) ->
+                ClickLink linkEvent ->
                     { previousEvent = Just { eventType = ClickLink2 clientId linkEvent, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( Http _, _ ) ->
+                Http _ ->
                     state
 
-                ( HttpLocal _, _ ) ->
+                HttpLocal _ ->
                     state
 
-                ( Paste pasteEvent, Just (Input2 previousClientId input) ) ->
-                    case pasteEvent.targetId of
-                        Just targetId ->
-                            if targetId == input.targetId && previousClientId == clientId then
-                                { state
-                                    | previousEvent = Just { eventType = Input2 clientId { input | text = input.text ++ pasteEvent.text }, time = timestamp }
-                                }
-
-                            else
-                                { previousEvent = Just { eventType = Input2 clientId { targetId = targetId, text = pasteEvent.text }, time = timestamp }
-                                , rest = [ { eventType = Input2 clientId input, time = timestamp } ] ++ state.rest
-                                }
-
-                        Nothing ->
-                            state
-
-                ( Paste pasteEvent, _ ) ->
+                Paste pasteEvent ->
                     case pasteEvent.targetId of
                         Just targetId ->
                             { previousEvent = Just { eventType = Input2 clientId { targetId = targetId, text = pasteEvent.text }, time = timestamp }
@@ -515,10 +531,10 @@ eventsToEvent2 events =
                         Nothing ->
                             state
 
-                ( ResetBackend, _ ) ->
+                ResetBackend ->
                     state
 
-                ( FromJsPort fromJsPort, _ ) ->
+                FromJsPort fromJsPort ->
                     case fromJsPort.triggeredFromPort of
                         Just _ ->
                             state
@@ -532,12 +548,12 @@ eventsToEvent2 events =
                             , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                             }
 
-                ( WindowResize resizeEvent, _ ) ->
+                WindowResize resizeEvent ->
                     { previousEvent = Just { eventType = WindowResize2 clientId resizeEvent, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
-                ( CheckView checkView, _ ) ->
+                CheckView checkView ->
                     { previousEvent = Just { eventType = CheckView2 clientId checkView, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
