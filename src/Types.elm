@@ -30,8 +30,22 @@ type alias LoadedData =
     , includePagePos : Bool
     , includeScreenPos : Bool
     , mouseDownOnEvent : Bool
-    , previousHttpRequests : List ( String, String )
+    , parsedCode : Result () ParsedCode
     }
+
+
+type alias ParsedCode =
+    { codeParts : List Code
+    , httpRequests : List ( String, String )
+    , portRequests : List ( String, ( String, String ) )
+    }
+
+
+type Code
+    = UserCode String
+    | HttpRequestCode
+    | PortRequestCode
+    | TestEntryPoint
 
 
 type alias BackendModel =

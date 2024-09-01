@@ -152,12 +152,15 @@ updateLoaded msg model =
                 ( model, Cmd.none )
 
         PressedCopyCode ->
-            ( { model | copyCounter = model.copyCounter + 1 }
-            , Array.toList model.history
-                |> List.filter (\event -> not event.isHidden)
-                |> codegen model
-                |> copy_to_clipboard_to_js
-            )
+            case model.parsedCode of
+                Ok ok ->
+                    ( { model | copyCounter = model.copyCounter + 1 }
+                    , codegen ok model (Array.toList model.history |> List.filter (\event -> not event.isHidden))
+                        |> copy_to_clipboard_to_js
+                    )
+
+                Err () ->
+                    ( model, Cmd.none )
 
         ElmUiMsg msg2 ->
             ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
@@ -296,19 +299,19 @@ updateFromBackend msg model =
                         , includePagePos = events.includePagePos
                         , includeClientPos = events.includeClientPos
                         , mouseDownOnEvent = False
-                        , previousHttpRequests =
+                        , parsedCode =
                             Array.toList events.history
                                 |> List.reverse
                                 |> List.Extra.findMap
                                     (\event ->
                                         case event.eventType of
                                             Connect { code } ->
-                                                getPreviousHttpRequests code |> Just
+                                                code
 
                                             _ ->
                                                 Nothing
                                     )
-                                |> Maybe.withDefault []
+                                |> parseCode
                         }
                     , Cmd.none
                     )
@@ -320,13 +323,13 @@ updateFromBackend msg model =
             case model of
                 LoadedSession loaded ->
                     ( { loaded
-                        | previousHttpRequests =
+                        | parsedCode =
                             case event.eventType of
                                 Connect { code } ->
-                                    getPreviousHttpRequests code
+                                    parseCode code
 
                                 _ ->
-                                    loaded.previousHttpRequests
+                                    loaded.parsedCode
                       }
                         |> addEvent event
                         |> LoadedSession
@@ -346,43 +349,266 @@ updateFromBackend msg model =
                     ( model, Cmd.none )
 
 
-getPreviousHttpRequests : Maybe String -> List ( String, String )
-getPreviousHttpRequests code =
-    case Maybe.map (String.split "\nhttpRequests =") code of
-        Just [ _, rest ] ->
-            case String.split "|> Dict.fromList" rest of
-                listText :: _ ->
-                    case Elm.Parser.parseToFile ("module A exposing (..)\nhttpRequests =\n   " ++ listText) of
-                        Ok ast ->
-                            case ast.declarations of
-                                [ Node _ (FunctionDeclaration func) ] ->
-                                    case Node.value func.declaration |> .expression of
-                                        Node _ (ListExpr requests) ->
-                                            List.filterMap
-                                                (\(Node _ request) ->
-                                                    case request of
-                                                        TupledExpression [ Node _ (Literal a), Node _ (Literal b) ] ->
-                                                            Just ( a, b )
+parseCode : Maybe String -> Result () ParsedCode
+parseCode maybeCode =
+    case maybeCode of
+        Just code ->
+            case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests " code ) of
+                ( [ httpRequestsStart ], [ portRequestsStart ], [ testsStart ] ) ->
+                    let
+                        fromListIndices : List Int
+                        fromListIndices =
+                            String.indexes "|> Dict.fromList" code
+                    in
+                    case
+                        ( List.Extra.find (\index -> index > httpRequestsStart) fromListIndices
+                        , List.Extra.find (\index -> index > portRequestsStart) fromListIndices
+                        , List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code)
+                        )
+                    of
+                        ( Just httpRequestsEnd, Just portRequestsEnd, Just testsEnd ) ->
+                            let
+                                httpRequestsResult =
+                                    String.slice httpRequestsStart httpRequestsEnd code |> parseHttpRequests
 
-                                                        _ ->
-                                                            Nothing
-                                                )
-                                                requests
+                                portRequestsResult =
+                                    String.slice portRequestsStart portRequestsEnd code |> parsePortRequests
 
-                                        _ ->
-                                            []
+                                sorted =
+                                    List.sortBy
+                                        (\( a, _, _ ) -> a)
+                                        [ ( httpRequestsStart, httpRequestsEnd, HttpRequestCode )
+                                        , ( portRequestsStart, portRequestsEnd, PortRequestCode )
+                                        , ( testsEnd, testsEnd, TestEntryPoint )
+                                        ]
+
+                                last : Int
+                                last =
+                                    case List.reverse sorted of
+                                        ( _, end, _ ) :: _ ->
+                                            end
+
+                                        [] ->
+                                            String.length code - 1
+                            in
+                            case ( httpRequestsResult, portRequestsResult ) of
+                                ( Ok httpRequests, Ok portRequests ) ->
+                                    { codeParts =
+                                        List.foldl
+                                            (\( start, end, codeType ) state ->
+                                                { codeParts =
+                                                    codeType
+                                                        :: UserCode (String.slice state.previousIndex start code)
+                                                        :: state.codeParts
+                                                , previousIndex = end
+                                                }
+                                            )
+                                            { previousIndex = 0, codeParts = [] }
+                                            sorted
+                                            |> .codeParts
+                                            |> (\a -> UserCode (String.slice last (String.length code - 1) code) :: a)
+                                            |> List.reverse
+                                    , httpRequests = httpRequests
+                                    , portRequests = portRequests
+                                    }
+                                        |> Ok
 
                                 _ ->
-                                    []
+                                    Err ()
 
-                        Err _ ->
-                            []
+                        _ ->
+                            Err ()
 
-                [] ->
-                    []
+                _ ->
+                    Err ()
 
-        _ ->
-            []
+        Nothing ->
+            { codeParts =
+                [ UserCode """module MyTests exposing (main, setup, tests)
+
+import Backend
+import Bytes exposing (Bytes)
+import Dict exposing (Dict)
+import Duration exposing (Duration)
+import Effect.Browser.Dom as Dom
+import Effect.Lamdera
+import Effect.Test as T exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
+import Frontend
+import Json.Decode
+import Json.Encode
+import Test.Html.Query
+import Test.Html.Selector as Selector
+import Time
+import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
+import Url exposing (Url)
+
+
+setup : T.ViewerWith (List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
+setup =
+    T.viewerWith tests
+        |> T.addBytesFiles (Dict.values httpRequests)
+
+
+main : Program () (T.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (T.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+main =
+    T.startViewer setup
+
+
+domain : Url
+domain =
+    { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
+
+
+stringToJson : String -> Json.Encode.Value
+stringToJson json =
+    Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
+
+
+handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
+handlePortToJs { currentRequest } =
+    Dict.get currentRequest.portName portRequests
+
+
+{-| Please don't modify or rename this function -}
+portRequests : Dict String (String, Json.Encode.Value)
+portRequests =
+    [ """
+                , PortRequestCode
+                , UserCode """
+    ]
+        |> Dict.fromList
+
+
+{-| Please don't modify or rename this function -}
+httpRequests : Dict String String
+httpRequests =
+    [ """
+                , HttpRequestCode
+                , UserCode """
+    ]
+        |> Dict.fromList
+
+
+handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
+handleHttpRequests httpData { currentRequest } =
+    case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
+        Just filepath ->
+            case Dict.get filepath httpData of
+                Just data ->
+                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
+
+                Nothing ->
+                    UnhandledHttpRequest
+
+        Nothing ->
+            UnhandledHttpRequest
+
+
+{-| You can change parts of this function represented with `...`.
+The rest needs to remain unchanged in order for the test generator to be able to add new tests.
+
+    tests : ... -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+    tests ... =
+        let
+            config = ...
+
+            ...
+        in
+        [ ...
+        ]
+-}
+tests : Dict String Bytes -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests httpData =
+    let
+        config =
+            T.Config
+                Frontend.app_
+                Backend.app_
+                (handleHttpRequests httpData)
+                handlePortToJs
+                (\\_ -> UnhandledFileUpload)
+                (\\_ -> UnhandledMultiFileUpload)
+                domain
+    in
+    ["""
+                , TestEntryPoint
+                , UserCode "\n    ]"
+                ]
+            , httpRequests = []
+            , portRequests = []
+            }
+                |> Ok
+
+
+
+--Parser.succeed (\userCode codeParts -> codeParts)
+--    |= (Parser.chompUntil "\n" |> Parser.getChompedString)
+--    |= (Parser.chompWhile Unicode.isAlphaNum |> Parser.getChompedString
+--        |> Parser.andThen (\functionName ->
+--            case functionName of
+--                "httpRequests"
+--        )
+--    )
+
+
+parseHttpRequests : String -> Result () (List ( String, String ))
+parseHttpRequests code =
+    case Elm.Parser.parseToFile ("module A exposing (..)\n" ++ code) of
+        Ok ast ->
+            case ast.declarations of
+                [ Node _ (FunctionDeclaration func) ] ->
+                    case Node.value func.declaration |> .expression of
+                        Node _ (ListExpr requests) ->
+                            List.filterMap
+                                (\(Node _ request) ->
+                                    case request of
+                                        TupledExpression [ Node _ (Literal a), Node _ (Literal b) ] ->
+                                            Just ( a, b )
+
+                                        _ ->
+                                            Nothing
+                                )
+                                requests
+                                |> Ok
+
+                        _ ->
+                            Err ()
+
+                _ ->
+                    Err ()
+
+        Err _ ->
+            Err ()
+
+
+parsePortRequests : String -> Result () (List ( String, ( String, String ) ))
+parsePortRequests code =
+    case Elm.Parser.parseToFile ("module A exposing (..)\n" ++ code) of
+        Ok ast ->
+            case ast.declarations of
+                [ Node _ (FunctionDeclaration func) ] ->
+                    case Node.value func.declaration |> .expression of
+                        Node _ (ListExpr requests) ->
+                            List.filterMap
+                                (\(Node _ request) ->
+                                    case request of
+                                        TupledExpression [ Node _ (Literal a), Node _ (TupledExpression [ Node _ (Literal b), Node _ (Application [ _, Node _ (Literal json) ]) ]) ] ->
+                                            Just ( a, ( b, json ) )
+
+                                        _ ->
+                                            Nothing
+                                )
+                                requests
+                                |> Ok
+
+                        _ ->
+                            Err ()
+
+                _ ->
+                    Err ()
+
+        Err _ ->
+            Err ()
 
 
 eventsListContainer : String
@@ -597,16 +823,99 @@ dropPrefix prefix text =
         text
 
 
-codegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool, previousHttpRequests : List ( String, String ) } -> List Event -> String
-codegen includes events =
+codegen : ParsedCode -> LoadedData -> List Event -> String
+codegen parsedCode model events =
     let
+        tests : String
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
                 |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
-                |> List.indexedMap (\index ( head, rest ) -> testCode includes head.timestamp index (head :: rest))
+                |> List.indexedMap (\index ( head, rest ) -> testCode model head.timestamp index (head :: rest))
                 |> String.join "\n    ,"
+
+        httpRequests : String
+        httpRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        Http http ->
+                            ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
+                |> Dict.fromList
+                |> Dict.toList
+                |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
+                |> String.join "\n    , "
+
+        localRequests : List ( String, String )
+        localRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        HttpLocal { filepath } ->
+                            Just ( "GET_" ++ filepath, "/public" ++ filepath )
+
+                        _ ->
+                            Nothing
+                )
+                events
+
+        portRequests : String
+        portRequests =
+            List.filterMap
+                (\event ->
+                    case event.eventType of
+                        FromJsPort fromJsPort ->
+                            case fromJsPort.triggeredFromPort of
+                                Just trigger ->
+                                    Just { triggeredFromPort = trigger, port_ = fromJsPort.port_, data = fromJsPort.data }
+
+                                Nothing ->
+                                    Nothing
+
+                        _ ->
+                            Nothing
+                )
+                events
+                |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
+                |> List.map
+                    (\fromJsPort ->
+                        "(\""
+                            ++ fromJsPort.triggeredFromPort
+                            ++ "\", (\""
+                            ++ fromJsPort.port_
+                            ++ "\", stringToJson "
+                            ++ (if String.contains "\"" fromJsPort.data then
+                                    "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
+
+                                else
+                                    "\"" ++ fromJsPort.data ++ "\""
+                               )
+                            ++ "))"
+                    )
+                |> String.join "\n    , "
     in
-    setupCode includes.previousHttpRequests events ++ tests ++ "\n    ]"
+    List.map
+        (\codePart ->
+            case codePart of
+                UserCode code ->
+                    code
+
+                HttpRequestCode ->
+                    httpRequests
+
+                PortRequestCode ->
+                    portRequests
+
+                TestEntryPoint ->
+                    tests
+        )
+        parsedCode.codeParts
+        |> String.concat
 
 
 testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> Int -> List Event -> String
@@ -999,183 +1308,6 @@ pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName c
         ++ " ]\n"
 
 
-setupCode : List ( String, String ) -> List Event -> String
-setupCode existingHttpRequests events =
-    let
-        httpRequests : String
-        httpRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        Http http ->
-                            ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
-
-                        _ ->
-                            Nothing
-                )
-                events
-                |> (\a -> existingHttpRequests ++ a ++ localRequests)
-                |> Dict.fromList
-                |> Dict.toList
-                |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
-                |> String.join "\n    , "
-
-        localRequests : List ( String, String )
-        localRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        HttpLocal { filepath } ->
-                            Just ( "GET_" ++ filepath, "/public" ++ filepath )
-
-                        _ ->
-                            Nothing
-                )
-                events
-
-        portRequests : String
-        portRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        FromJsPort fromJsPort ->
-                            case fromJsPort.triggeredFromPort of
-                                Just trigger ->
-                                    Just { triggeredFromPort = trigger, port_ = fromJsPort.port_, data = fromJsPort.data }
-
-                                Nothing ->
-                                    Nothing
-
-                        _ ->
-                            Nothing
-                )
-                events
-                |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
-                |> List.map
-                    (\fromJsPort ->
-                        "(\""
-                            ++ fromJsPort.triggeredFromPort
-                            ++ "\", (\""
-                            ++ fromJsPort.port_
-                            ++ "\", stringToJson "
-                            ++ (if String.contains "\"" fromJsPort.data then
-                                    "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
-
-                                else
-                                    "\"" ++ fromJsPort.data ++ "\""
-                               )
-                            ++ "))"
-                    )
-                |> String.join "\n    , "
-    in
-    """module MyTests exposing (main, setup, tests)
-
-import Backend
-import Bytes exposing (Bytes)
-import Dict exposing (Dict)
-import Duration exposing (Duration)
-import Effect.Browser.Dom as Dom
-import Effect.Lamdera
-import Effect.Test as T exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
-import Frontend
-import Json.Decode
-import Json.Encode
-import Test.Html.Query
-import Test.Html.Selector as Selector
-import Time
-import Types exposing (ToBackend, FrontendMsg, FrontendModel, ToFrontend, BackendMsg, BackendModel)
-import Url exposing (Url)
-
-
-setup : T.ViewerWith (List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
-setup =
-    T.viewerWith tests
-        |> T.addBytesFiles (Dict.values httpRequests)
-
-
-main : Program () (T.Model ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel) (T.Msg ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-main =
-    T.startViewer setup
-
-
-domain : Url
-domain = { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
-
-
-stringToJson : String -> Json.Encode.Value
-stringToJson json =
-    Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
-
-
-handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
-handlePortToJs { currentRequest } =
-    Dict.get currentRequest.portName portRequests
-
-
-{-| Please don't modify or rename this function -}
-portRequests : Dict String (String, Json.Encode.Value)
-portRequests =
-    [ """
-        ++ portRequests
-        ++ """
-    ]
-        |> Dict.fromList
-
-
-{-| Please don't modify or rename this function -}
-httpRequests : Dict String String
-httpRequests =
-    [ """
-        ++ httpRequests
-        ++ """
-    ]
-        |> Dict.fromList
-
-
-handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
-handleHttpRequests httpData { currentRequest } =
-    case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
-        Just filepath ->
-            case Dict.get filepath httpData of
-                Just data ->
-                    BytesHttpResponse { url = currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
-
-                Nothing ->
-                    UnhandledHttpRequest
-
-        Nothing ->
-            UnhandledHttpRequest
-
-
-{-| You can change parts of this function represented with `...`.
-The rest needs to remain unchanged in order for the test generator to be able to add new tests.
-
-    tests : ... -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-    tests ... =
-        let
-            config = ...
-
-            ...
-        in
-        [ ...
-        ]
--}
-tests : Dict String Bytes -> List (T.Instructions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests httpData =
-    let
-        config =
-            T.Config
-                Frontend.app_
-                Backend.app_
-                (handleHttpRequests httpData)
-                handlePortToJs
-                (\\_ -> UnhandledFileUpload)
-                (\\_ -> UnhandledMultiFileUpload)
-                domain
-    in
-    ["""
-
-
 targetIdFunc : String -> String
 targetIdFunc id =
     "(Dom.id \"" ++ id ++ "\")"
@@ -1257,43 +1389,52 @@ loadedView model =
                     , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
                     ]
                 ]
-            , Ui.el
-                [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
-                , Ui.borderColor (Ui.rgb 100 100 100)
-                , Ui.inFront
-                    (Ui.row
-                        [ Ui.Input.button PressedCopyCode
-                        , Ui.border 1
+            , case model.parsedCode of
+                Ok _ ->
+                    Ui.el
+                        [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
                         , Ui.borderColor (Ui.rgb 100 100 100)
-                        , Ui.background (Ui.rgb 240 240 240)
-                        , Ui.width Ui.shrink
-                        , Ui.padding 4
-                        , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
-                        , Ui.alignRight
-                        , Ui.move { x = 0, y = -1, z = 0 }
-                        , Ui.Font.size 14
-                        , Ui.spacing 4
-                        ]
-                        [ Icons.copy
-                        , if model.copyCounter > 0 then
-                            Ui.text "Copied!"
+                        , Ui.inFront
+                            (Ui.row
+                                [ Ui.Input.button PressedCopyCode
+                                , Ui.border 1
+                                , Ui.borderColor (Ui.rgb 100 100 100)
+                                , Ui.background (Ui.rgb 240 240 240)
+                                , Ui.width Ui.shrink
+                                , Ui.padding 4
+                                , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
+                                , Ui.alignRight
+                                , Ui.move { x = 0, y = -1, z = 0 }
+                                , Ui.Font.size 14
+                                , Ui.spacing 4
+                                ]
+                                [ Icons.copy
+                                , if model.copyCounter > 0 then
+                                    Ui.text "Copied!"
 
-                          else
-                            Ui.text "Copy to clipboard"
+                                  else
+                                    Ui.text "Copy to clipboard"
+                                ]
+                            )
                         ]
-                    )
-                ]
-                Ui.none
-            , List.filter (\event -> not event.isHidden) eventsList
-                |> codegen model
-                |> Ui.text
-                |> Ui.el
-                    [ Ui.Font.family [ Ui.Font.monospace ]
-                    , Ui.Font.size 12
-                    , Ui.Font.exactWhitespace
-                    , Ui.scrollable
-                    , Ui.padding 8
-                    ]
+                        Ui.none
+
+                Err () ->
+                    Ui.none
+            , case model.parsedCode of
+                Ok ok ->
+                    codegen ok model (List.filter (\event -> not event.isHidden) eventsList)
+                        |> Ui.text
+                        |> Ui.el
+                            [ Ui.Font.family [ Ui.Font.monospace ]
+                            , Ui.Font.size 12
+                            , Ui.Font.exactWhitespace
+                            , Ui.scrollable
+                            , Ui.padding 8
+                            ]
+
+                Err () ->
+                    Ui.text ""
             ]
         ]
 
