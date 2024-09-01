@@ -30,8 +30,15 @@ type alias LoadedData =
     , includePagePos : Bool
     , includeScreenPos : Bool
     , mouseDownOnEvent : Bool
-    , parsedCode : Result ParseError ParsedCode
+    , parsedCode : ParsedCodeStatus
     }
+
+
+type ParsedCodeStatus
+    = ParseSuccess ParsedCode
+    | ParseFailed ParseError
+    | WaitingOnUser
+    | FileApiNotSupported
 
 
 type ParseError
@@ -87,7 +94,6 @@ type FrontendMsg
     | ScrolledToBottom
     | MouseDownOnEvent Int Bool
     | MouseEnterOnEvent Int Bool
-    | PressedCopyCode
     | ElmUiMsg Ui.Anim.Msg
     | ToggledIncludeScreenPos Bool
     | ToggledIncludeClientPos Bool
@@ -96,6 +102,9 @@ type FrontendMsg
     | PressedEvent
     | GotFile { name : String, content : String }
     | PressedSelectFile
+    | PressedNewFile
+    | PressedSaveFile
+    | FileApiNotSupportedFromPort
 
 
 type ToBackend
@@ -206,7 +215,7 @@ type alias Touch =
 
 
 type alias ConnectEvent =
-    { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int, code : Maybe String }
+    { url : String, sessionId : SessionId, windowWidth : Int, windowHeight : Int }
 
 
 type alias WindowResizeEvent =

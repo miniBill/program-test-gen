@@ -44,6 +44,12 @@ port select_file_to_js : () -> Cmd msg
 port select_file_from_js : ({ name : String, content : String } -> msg) -> Sub msg
 
 
+port got_file_api_not_supported : (() -> msg) -> Sub msg
+
+
+port get_file_api_not_supported : () -> Cmd msg
+
+
 app =
     Lamdera.frontend
         { init = init
@@ -51,7 +57,13 @@ app =
         , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
-        , subscriptions = \_ -> Sub.batch [ Browser.Events.onMouseUp (Json.Decode.succeed MouseUp), select_file_from_js GotFile ]
+        , subscriptions =
+            \_ ->
+                Sub.batch
+                    [ Browser.Events.onMouseUp (Json.Decode.succeed MouseUp)
+                    , select_file_from_js GotFile
+                    , got_file_api_not_supported (\() -> FileApiNotSupportedFromPort)
+                    ]
         , view = view
         }
 
@@ -64,17 +76,23 @@ init url key =
                 { key = key
                 , sessionName = SessionName sessionName
                 }
-            , Lamdera.sendToBackend (LoadSessionRequest (SessionName sessionName))
+            , Cmd.batch
+                [ get_file_api_not_supported ()
+                , Lamdera.sendToBackend (LoadSessionRequest (SessionName sessionName))
+                ]
             )
 
         Nothing ->
             ( LoadingSession { key = key, sessionName = SessionName "" }
-            , Random.generate
-                GotRandomSessionName
-                (Random.map
-                    (\int -> String.fromInt int |> Sha256.sha224 |> String.left 16 |> SessionName)
-                    (Random.int Random.minInt Random.maxInt)
-                )
+            , Cmd.batch
+                [ get_file_api_not_supported ()
+                , Random.generate
+                    GotRandomSessionName
+                    (Random.map
+                        (\int -> String.fromInt int |> Sha256.sha224 |> String.left 16 |> SessionName)
+                        (Random.int Random.minInt Random.maxInt)
+                    )
+                ]
             )
 
 
@@ -160,15 +178,15 @@ updateLoaded msg model =
             else
                 ( model, Cmd.none )
 
-        PressedCopyCode ->
+        PressedSaveFile ->
             case model.parsedCode of
-                Ok ok ->
-                    ( { model | copyCounter = model.copyCounter + 1 }
+                ParseSuccess ok ->
+                    ( model
                     , codegen ok model (Array.toList model.history |> List.filter (\event -> not event.isHidden))
                         |> write_file_to_js
                     )
 
-                Err _ ->
+                _ ->
                     ( model, Cmd.none )
 
         ElmUiMsg msg2 ->
@@ -211,10 +229,32 @@ updateLoaded msg model =
             ( model, Cmd.none )
 
         GotFile { name, content } ->
-            ( { model | parsedCode = parseCode (Just content) }, Cmd.none )
+            ( { model
+                | parsedCode =
+                    case parseCode content of
+                        Ok ok ->
+                            ParseSuccess ok
+
+                        Err err ->
+                            ParseFailed err
+              }
+            , Cmd.none
+            )
 
         PressedSelectFile ->
             ( model, select_file_to_js () )
+
+        PressedNewFile ->
+            ( { model | parsedCode = ParseSuccess newCode }
+            , Cmd.none
+            )
+
+        FileApiNotSupportedFromPort ->
+            let
+                _ =
+                    Debug.log "a" "12356"
+            in
+            ( { model | parsedCode = FileApiNotSupported }, Cmd.none )
 
 
 addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
@@ -314,19 +354,7 @@ updateFromBackend msg model =
                         , includePagePos = events.includePagePos
                         , includeClientPos = events.includeClientPos
                         , mouseDownOnEvent = False
-                        , parsedCode =
-                            Array.toList events.history
-                                |> List.reverse
-                                |> List.Extra.findMap
-                                    (\event ->
-                                        case event.eventType of
-                                            Connect { code } ->
-                                                code
-
-                                            _ ->
-                                                Nothing
-                                    )
-                                |> parseCode
+                        , parsedCode = WaitingOnUser
                         }
                     , Cmd.none
                     )
@@ -337,17 +365,7 @@ updateFromBackend msg model =
         SessionUpdate event ->
             case model of
                 LoadedSession loaded ->
-                    ( { loaded
-                        | parsedCode =
-                            case event.eventType of
-                                Connect { code } ->
-                                    parseCode code
-
-                                _ ->
-                                    loaded.parsedCode
-                      }
-                        |> addEvent event
-                        |> LoadedSession
+                    ( addEvent event loaded |> LoadedSession
                     , Browser.Dom.setViewportOf eventsListContainer 0 99999
                         |> Task.attempt (\_ -> ScrolledToBottom)
                     )
@@ -450,29 +468,29 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
             Err TestEntryPointNotFound
 
 
-parseCode : Maybe String -> Result ParseError ParsedCode
-parseCode maybeCode =
-    case maybeCode of
-        Just code ->
-            case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests : " code ) of
-                ( [ httpRequestsStart ], [ portRequestsStart ], [ testsStart ] ) ->
-                    parseCodeHelper code httpRequestsStart portRequestsStart testsStart
+parseCode : String -> Result ParseError ParsedCode
+parseCode code =
+    case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests : " code ) of
+        ( [ httpRequestsStart ], [ portRequestsStart ], [ testsStart ] ) ->
+            parseCodeHelper code httpRequestsStart portRequestsStart testsStart
 
-                ( [], [ _ ], [ _ ] ) ->
-                    Err PortRequestsNotFound
+        ( [], [ _ ], [ _ ] ) ->
+            Err PortRequestsNotFound
 
-                ( [ _ ], [], [ _ ] ) ->
-                    Err PortRequestsNotFound
+        ( [ _ ], [], [ _ ] ) ->
+            Err PortRequestsNotFound
 
-                ( [ _ ], [ _ ], [] ) ->
-                    Err TestEntryPointNotFound
+        ( [ _ ], [ _ ], [] ) ->
+            Err TestEntryPointNotFound
 
-                _ ->
-                    Err UnknownError
+        _ ->
+            Err UnknownError
 
-        Nothing ->
-            { codeParts =
-                [ UserCode """module MyTests exposing (main, setup, tests)
+
+newCode : ParsedCode
+newCode =
+    { codeParts =
+        [ UserCode """module MyTests exposing (main, setup, tests)
 
 import Backend
 import Bytes exposing (Bytes)
@@ -521,8 +539,8 @@ handlePortToJs { currentRequest } =
 portRequests : Dict String (String, Json.Encode.Value)
 portRequests =
     [ """
-                , PortRequestCode
-                , UserCode """
+        , PortRequestCode
+        , UserCode """
     ]
         |> Dict.fromList
 
@@ -531,8 +549,8 @@ portRequests =
 httpRequests : Dict String String
 httpRequests =
     [ """
-                , HttpRequestCode
-                , UserCode """
+        , HttpRequestCode
+        , UserCode """
     ]
         |> Dict.fromList
 
@@ -579,25 +597,13 @@ tests httpData =
                 domain
     in
     ["""
-                , TestEntryPoint
-                , UserCode "\n    ]"
-                ]
-            , httpRequests = []
-            , portRequests = []
-            , noPriorTests = True
-            }
-                |> Ok
-
-
-
---Parser.succeed (\userCode codeParts -> codeParts)
---    |= (Parser.chompUntil "\n" |> Parser.getChompedString)
---    |= (Parser.chompWhile Unicode.isAlphaNum |> Parser.getChompedString
---        |> Parser.andThen (\functionName ->
---            case functionName of
---                "httpRequests"
---        )
---    )
+        , TestEntryPoint
+        , UserCode "\n    ]"
+        ]
+    , httpRequests = []
+    , portRequests = []
+    , noPriorTests = True
+    }
 
 
 parseHttpRequests : String -> Result () (List ( String, String ))
@@ -1398,102 +1404,96 @@ view model =
 
 loadedView : LoadedData -> Ui.Element FrontendMsg
 loadedView model =
-    let
-        eventsList : List Event
-        eventsList =
-            Array.toList model.history
-    in
-    Ui.row
-        [ Ui.height Ui.fill ]
-        [ Ui.column
-            [ Ui.height Ui.fill
-            , Ui.width Ui.shrink
-            , Ui.background (Ui.rgb 255 250 245)
-            , Ui.borderWith { left = 0, right = 1, top = 0, bottom = 0 }
-            , Ui.borderColor (Ui.rgb 245 240 235)
-            ]
-            [ Ui.row
-                []
-                [ Ui.el [ Ui.Font.bold, Ui.paddingWith { left = 8, right = 8, top = 8, bottom = 4 } ] (Ui.text "Event history")
-                , Ui.el
-                    [ Ui.Input.button PressedResetSession
+    case model.parsedCode of
+        WaitingOnUser ->
+            Ui.column
+                [ Ui.centerX, Ui.centerY, Ui.spacing 16, Ui.width Ui.shrink ]
+                [ Ui.el
+                    [ Ui.Input.button PressedNewFile
                     , Ui.border 1
-                    , Ui.borderColor (Ui.rgb 120 110 100)
-                    , Ui.background (Ui.rgb 240 235 230)
-                    , Ui.width Ui.shrink
-                    , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                    , Ui.borderColor (Ui.rgb 100 100 100)
+                    , Ui.background (Ui.rgb 240 240 240)
+                    , Ui.padding 8
+                    , Ui.Font.size 20
+                    , Ui.rounded 8
                     ]
-                    (Ui.text "Reset")
-                ]
-            , eventsView eventsList
-            ]
-        , Ui.column
-            [ Ui.height Ui.fill, Ui.spacing 0 ]
-            [ Ui.column
-                [ Ui.spacing 8, Ui.padding 8 ]
-                [ Ui.Prose.paragraph
-                    [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
-                    [ Ui.text "Press "
-                    , Ui.el
-                        [ Ui.Font.color (Ui.rgb 238 238 238)
-                        , Ui.background (Ui.rgb 41 51 53)
-                        , Ui.Font.size 14
-                        , Ui.contentCenterY
-                        , Ui.padding 4
-                        ]
-                        (Ui.text "Reset\u{00A0}Backend")
-                    , Ui.text " in lamdera live to start a new test"
-                    ]
-                , Ui.column
-                    []
-                    [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.includeClientPos
-                    , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.includePagePos
-                    , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
-                    ]
+                    (Ui.text "New end-to-end test module")
                 , Ui.el
                     [ Ui.Input.button PressedSelectFile
                     , Ui.border 1
                     , Ui.borderColor (Ui.rgb 100 100 100)
                     , Ui.background (Ui.rgb 240 240 240)
-                    , Ui.padding 4
+                    , Ui.padding 8
+                    , Ui.Font.size 20
+                    , Ui.rounded 8
                     ]
-                    (Ui.text "Select file")
+                    (Ui.text "Open end-to-end test module")
                 ]
-            , case model.parsedCode of
-                Ok _ ->
-                    Ui.el
-                        [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
-                        , Ui.borderColor (Ui.rgb 100 100 100)
-                        , Ui.inFront
-                            (Ui.row
-                                [ Ui.Input.button PressedCopyCode
-                                , Ui.border 1
-                                , Ui.borderColor (Ui.rgb 100 100 100)
-                                , Ui.background (Ui.rgb 240 240 240)
-                                , Ui.width Ui.shrink
-                                , Ui.padding 4
-                                , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
-                                , Ui.alignRight
-                                , Ui.move { x = 0, y = -1, z = 0 }
-                                , Ui.Font.size 14
-                                , Ui.spacing 4
-                                ]
-                                [ Icons.copy
-                                , if model.copyCounter > 0 then
-                                    Ui.text "Copied!"
 
-                                  else
-                                    Ui.text "Copy to clipboard"
-                                ]
-                            )
+        ParseSuccess parsed ->
+            let
+                eventsList : List Event
+                eventsList =
+                    Array.toList model.history
+            in
+            Ui.row
+                [ Ui.height Ui.fill ]
+                [ Ui.column
+                    [ Ui.height Ui.fill
+                    , Ui.width Ui.shrink
+                    , Ui.background (Ui.rgb 255 250 245)
+                    , Ui.borderWith { left = 0, right = 1, top = 0, bottom = 0 }
+                    , Ui.borderColor (Ui.rgb 245 240 235)
+                    ]
+                    [ Ui.row
+                        []
+                        [ Ui.el [ Ui.Font.bold, Ui.paddingWith { left = 8, right = 8, top = 8, bottom = 4 } ] (Ui.text "Unsaved events")
+                        , Ui.el
+                            [ Ui.Input.button PressedResetSession
+                            , Ui.border 1
+                            , Ui.borderColor (Ui.rgb 120 110 100)
+                            , Ui.background (Ui.rgb 240 235 230)
+                            , Ui.width Ui.shrink
+                            , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                            ]
+                            (Ui.text "Clear")
+                        , Ui.el
+                            [ Ui.Input.button PressedSaveFile
+                            , Ui.border 1
+                            , Ui.borderColor (Ui.rgb 120 110 100)
+                            , Ui.background (Ui.rgb 240 235 230)
+                            , Ui.width Ui.shrink
+                            , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                            ]
+                            (Ui.text "Save to file")
                         ]
-                        Ui.none
-
-                Err _ ->
-                    Ui.none
-            , case model.parsedCode of
-                Ok ok ->
-                    codegen ok model (List.filter (\event -> not event.isHidden) eventsList)
+                    , eventsView eventsList
+                    ]
+                , Ui.column
+                    [ Ui.height Ui.fill, Ui.spacing 0 ]
+                    ([ Ui.column
+                        [ Ui.spacing 8, Ui.padding 8 ]
+                        [ Ui.Prose.paragraph
+                            [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
+                            [ Ui.text "Press "
+                            , Ui.el
+                                [ Ui.Font.color (Ui.rgb 238 238 238)
+                                , Ui.background (Ui.rgb 41 51 53)
+                                , Ui.Font.size 14
+                                , Ui.contentCenterY
+                                , Ui.padding 4
+                                ]
+                                (Ui.text "Reset\u{00A0}Backend")
+                            , Ui.text " in lamdera live to end the current test and start a new test"
+                            ]
+                        , Ui.column
+                            []
+                            [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.includeClientPos
+                            , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.includePagePos
+                            , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
+                            ]
+                        ]
+                     , codegen parsed model (List.filter (\event -> not event.isHidden) eventsList)
                         |> Ui.text
                         |> Ui.el
                             [ Ui.Font.family [ Ui.Font.monospace ]
@@ -1502,39 +1502,82 @@ loadedView model =
                             , Ui.scrollable
                             , Ui.padding 8
                             ]
-
-                Err error ->
-                    (case error of
-                        InvalidPortRequests ->
-                            "The portRequests function was found but couldn't be parsed."
-
-                        InvalidHttpRequests ->
-                            "The httpRequests function was found but couldn't be parsed."
-
-                        InvalidHttpAndPortRequests ->
-                            "The portRequests and httpRequests functions were found but couldn't be parsed."
-
-                        PortRequestsNotFound ->
-                            "The portRequests function wasn't found."
-
-                        HttpRequestsNotFound ->
-                            "The httpRequests function wasn't found."
-
-                        TestEntryPointNotFound ->
-                            "The test entry point (the \"]\" at the end of the the tests function) wasn't found."
-
-                        UnknownError ->
-                            "This end-to-end test module appears to be corrupted or the wrong file is being loaded."
-
-                        PortRequestsEndNotFound ->
-                            "The portRequests function was found but it's supposed to end with \"|> Dict.fromList\""
-
-                        HttpRequestsEndNotFound ->
-                            "The httpRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+                     ]
+                     --(case model.parsedCode of
+                     --    ParseSuccess _ ->
+                     --        [ Ui.el
+                     --            [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
+                     --            , Ui.borderColor (Ui.rgb 100 100 100)
+                     --            , Ui.inFront
+                     --                (Ui.row
+                     --                    [ Ui.Input.button PressedCopyCode
+                     --                    , Ui.border 1
+                     --                    , Ui.borderColor (Ui.rgb 100 100 100)
+                     --                    , Ui.background (Ui.rgb 240 240 240)
+                     --                    , Ui.width Ui.shrink
+                     --                    , Ui.padding 4
+                     --                    , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
+                     --                    , Ui.alignRight
+                     --                    , Ui.move { x = 0, y = -1, z = 0 }
+                     --                    , Ui.Font.size 14
+                     --                    , Ui.spacing 4
+                     --                    ]
+                     --                    [ Icons.copy
+                     --                    , if model.copyCounter > 0 then
+                     --                        Ui.text "Copied!"
+                     --
+                     --                      else
+                     --                        Ui.text "Copy to clipboard"
+                     --                    ]
+                     --                )
+                     --            ]
+                     --            Ui.none
+                     --        ]
+                     --
+                     --    _ ->
+                     --        []
+                     --)
                     )
-                        |> Ui.text
-            ]
-        ]
+                ]
+
+        ParseFailed error ->
+            Ui.el
+                []
+                ((case error of
+                    InvalidPortRequests ->
+                        "The portRequests function was found but couldn't be parsed."
+
+                    InvalidHttpRequests ->
+                        "The httpRequests function was found but couldn't be parsed."
+
+                    InvalidHttpAndPortRequests ->
+                        "The portRequests and httpRequests functions were found but couldn't be parsed."
+
+                    PortRequestsNotFound ->
+                        "The portRequests function wasn't found."
+
+                    HttpRequestsNotFound ->
+                        "The httpRequests function wasn't found."
+
+                    TestEntryPointNotFound ->
+                        "The test entry point (the \"]\" at the end of the the tests function) wasn't found."
+
+                    UnknownError ->
+                        "This end-to-end test module appears to be corrupted or the wrong file is being loaded."
+
+                    PortRequestsEndNotFound ->
+                        "The portRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+
+                    HttpRequestsEndNotFound ->
+                        "The httpRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+                 )
+                    |> Ui.text
+                )
+
+        FileApiNotSupported ->
+            Ui.el
+                [ Ui.centerX, Ui.centerY, Ui.widthMax 400, Ui.Font.size 20 ]
+                (Ui.text "Your browser doesn't support the File System API. It's needed in order to read and write to your end-to-end test module. It should work on Chrome (sorry).")
 
 
 simpleCheckbox : (Bool -> msg) -> String -> Bool -> Ui.Element msg

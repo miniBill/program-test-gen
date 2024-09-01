@@ -1,6 +1,16 @@
 exports.init = async function init(app)
 {
     var existingHandle = null;
+
+    app.ports.get_file_api_not_supported.subscribe((a) => {
+        if (!(window.showOpenFilePicker && window.showSaveFilePicker)) {
+            // For some reason Elm doesn't pick up on this port call unless there's a delay
+            setTimeout(function () {
+                app.ports.got_file_api_not_supported.send(null);
+            }, 1);
+        }
+    });
+
     app.ports.select_file_to_js.subscribe((a) => {
         let options = {
             types: [
@@ -14,7 +24,24 @@ exports.init = async function init(app)
             excludeAcceptAllOption: true,
             multiple: false,
           };
-        window.showOpenFilePicker(options).then((result) => { existingHandle = result[0] });
+        if (window.showOpenFilePicker) {
+            window.showOpenFilePicker(options).then((result) => {
+                existingHandle = result[0];
+                existingHandle.getFile().then((file) => {
+                    let reader = new FileReader();
+                    reader.readAsText(file);
+                    reader.onload = function() {
+                        app.ports.select_file_from_js.send({ name : file.name, content : reader.result });
+                    };
+                    reader.onerror = function() {
+                    };
+                });
+            });
+        }
+        else
+        {
+            // TODO
+        }
     });
 
     app.ports.write_file_to_js.subscribe((text) =>
@@ -23,7 +50,7 @@ exports.init = async function init(app)
                 // create a new handle
                 if (existingHandle) {
                     existingHandle.createWritable().then((writableStream) => {
-                        writableStream.write("This is my file content").then((a) => {
+                        writableStream.write(text).then((a) => {
                             writableStream.close();
                         });
                     });
@@ -32,14 +59,13 @@ exports.init = async function init(app)
                     window.showSaveFilePicker().then((newHandle) => {
                         existingHandle = newHandle;
                         newHandle.createWritable().then((writableStream) => {
-                                writableStream.write("This is my file content").then((a) => {
+                                writableStream.write(text).then((a) => {
                                     writableStream.close();
                                 });
                             });
                         });
                 }
             } catch (err) {
-                console.error(err.name, err.message);
             }
         }
     )

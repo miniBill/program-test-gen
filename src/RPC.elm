@@ -218,7 +218,6 @@ connectEventCodec =
         |> Codec.field "sessionId" .sessionId Codec.string
         |> Codec.field "windowWidth" .windowWidth Codec.int
         |> Codec.field "windowHeight" .windowHeight Codec.int
-        |> Codec.nullableField "code" .code Codec.string
         |> Codec.buildObject
 
 
