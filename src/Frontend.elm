@@ -35,6 +35,15 @@ import Url.Parser
 port copy_to_clipboard_to_js : String -> Cmd msg
 
 
+port write_file_to_js : String -> Cmd msg
+
+
+port select_file_to_js : () -> Cmd msg
+
+
+port select_file_from_js : ({ name : String, content : String } -> msg) -> Sub msg
+
+
 app =
     Lamdera.frontend
         { init = init
@@ -42,7 +51,7 @@ app =
         , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
-        , subscriptions = \_ -> Browser.Events.onMouseUp (Json.Decode.succeed MouseUp)
+        , subscriptions = \_ -> Sub.batch [ Browser.Events.onMouseUp (Json.Decode.succeed MouseUp), select_file_from_js GotFile ]
         , view = view
         }
 
@@ -156,10 +165,10 @@ updateLoaded msg model =
                 Ok ok ->
                     ( { model | copyCounter = model.copyCounter + 1 }
                     , codegen ok model (Array.toList model.history |> List.filter (\event -> not event.isHidden))
-                        |> copy_to_clipboard_to_js
+                        |> write_file_to_js
                     )
 
-                Err () ->
+                Err _ ->
                     ( model, Cmd.none )
 
         ElmUiMsg msg2 ->
@@ -200,6 +209,12 @@ updateLoaded msg model =
 
         PressedEvent ->
             ( model, Cmd.none )
+
+        GotFile { name, content } ->
+            ( { model | parsedCode = parseCode (Just content) }, Cmd.none )
+
+        PressedSelectFile ->
+            ( model, select_file_to_js () )
 
 
 addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
@@ -349,78 +364,111 @@ updateFromBackend msg model =
                     ( model, Cmd.none )
 
 
-parseCode : Maybe String -> Result () ParsedCode
+parseCodeHelper : String -> Int -> Int -> Int -> Result ParseError ParsedCode
+parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
+    let
+        fromListIndices : List Int
+        fromListIndices =
+            String.indexes "|> Dict.fromList" code
+    in
+    case
+        ( List.Extra.find (\index -> index > httpRequestsStart) fromListIndices
+        , List.Extra.find (\index -> index > portRequestsStart) fromListIndices
+        , List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code)
+        )
+    of
+        ( Just httpRequestsEnd, Just portRequestsEnd, Just testsEnd ) ->
+            let
+                httpRequestsResult =
+                    String.slice httpRequestsStart httpRequestsEnd code |> parseHttpRequests
+
+                portRequestsResult =
+                    String.slice portRequestsStart portRequestsEnd code |> parsePortRequests
+
+                sorted =
+                    List.sortBy
+                        (\( a, _, _ ) -> a)
+                        [ ( httpRequestsStart, httpRequestsEnd, HttpRequestCode )
+                        , ( portRequestsStart, portRequestsEnd, PortRequestCode )
+                        , ( testsEnd, testsEnd, TestEntryPoint )
+                        ]
+
+                last : Int
+                last =
+                    case List.reverse sorted of
+                        ( _, end, _ ) :: _ ->
+                            end
+
+                        [] ->
+                            String.length code - 1
+            in
+            case ( httpRequestsResult, portRequestsResult ) of
+                ( Ok httpRequests, Ok portRequests ) ->
+                    { codeParts =
+                        List.foldl
+                            (\( start, end, codeType ) state ->
+                                { codeParts =
+                                    codeType
+                                        :: UserCode (String.slice state.previousIndex start code)
+                                        :: state.codeParts
+                                , previousIndex = end
+                                }
+                            )
+                            { previousIndex = 0, codeParts = [] }
+                            sorted
+                            |> .codeParts
+                            |> (\a -> UserCode (String.slice last (String.length code - 1) code) :: a)
+                            |> List.reverse
+                    , httpRequests = httpRequests
+                    , portRequests = portRequests
+                    , noPriorTests =
+                        case String.slice testsStart testsEnd code |> String.split "\n    [" of
+                            [ _, rest ] ->
+                                String.contains "," rest |> not
+
+                            _ ->
+                                False
+                    }
+                        |> Ok
+
+                ( Err (), Ok _ ) ->
+                    Err InvalidHttpRequests
+
+                ( Ok _, Err () ) ->
+                    Err InvalidPortRequests
+
+                ( Err (), Err () ) ->
+                    Err InvalidHttpAndPortRequests
+
+        ( Nothing, _, _ ) ->
+            Err PortRequestsEndNotFound
+
+        ( _, Nothing, _ ) ->
+            Err PortRequestsEndNotFound
+
+        ( _, _, Nothing ) ->
+            Err TestEntryPointNotFound
+
+
+parseCode : Maybe String -> Result ParseError ParsedCode
 parseCode maybeCode =
     case maybeCode of
         Just code ->
-            case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests " code ) of
+            case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests : " code ) of
                 ( [ httpRequestsStart ], [ portRequestsStart ], [ testsStart ] ) ->
-                    let
-                        fromListIndices : List Int
-                        fromListIndices =
-                            String.indexes "|> Dict.fromList" code
-                    in
-                    case
-                        ( List.Extra.find (\index -> index > httpRequestsStart) fromListIndices
-                        , List.Extra.find (\index -> index > portRequestsStart) fromListIndices
-                        , List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code)
-                        )
-                    of
-                        ( Just httpRequestsEnd, Just portRequestsEnd, Just testsEnd ) ->
-                            let
-                                httpRequestsResult =
-                                    String.slice httpRequestsStart httpRequestsEnd code |> parseHttpRequests
+                    parseCodeHelper code httpRequestsStart portRequestsStart testsStart
 
-                                portRequestsResult =
-                                    String.slice portRequestsStart portRequestsEnd code |> parsePortRequests
+                ( [], [ _ ], [ _ ] ) ->
+                    Err PortRequestsNotFound
 
-                                sorted =
-                                    List.sortBy
-                                        (\( a, _, _ ) -> a)
-                                        [ ( httpRequestsStart, httpRequestsEnd, HttpRequestCode )
-                                        , ( portRequestsStart, portRequestsEnd, PortRequestCode )
-                                        , ( testsEnd, testsEnd, TestEntryPoint )
-                                        ]
+                ( [ _ ], [], [ _ ] ) ->
+                    Err PortRequestsNotFound
 
-                                last : Int
-                                last =
-                                    case List.reverse sorted of
-                                        ( _, end, _ ) :: _ ->
-                                            end
-
-                                        [] ->
-                                            String.length code - 1
-                            in
-                            case ( httpRequestsResult, portRequestsResult ) of
-                                ( Ok httpRequests, Ok portRequests ) ->
-                                    { codeParts =
-                                        List.foldl
-                                            (\( start, end, codeType ) state ->
-                                                { codeParts =
-                                                    codeType
-                                                        :: UserCode (String.slice state.previousIndex start code)
-                                                        :: state.codeParts
-                                                , previousIndex = end
-                                                }
-                                            )
-                                            { previousIndex = 0, codeParts = [] }
-                                            sorted
-                                            |> .codeParts
-                                            |> (\a -> UserCode (String.slice last (String.length code - 1) code) :: a)
-                                            |> List.reverse
-                                    , httpRequests = httpRequests
-                                    , portRequests = portRequests
-                                    }
-                                        |> Ok
-
-                                _ ->
-                                    Err ()
-
-                        _ ->
-                            Err ()
+                ( [ _ ], [ _ ], [] ) ->
+                    Err TestEntryPointNotFound
 
                 _ ->
-                    Err ()
+                    Err UnknownError
 
         Nothing ->
             { codeParts =
@@ -536,6 +584,7 @@ tests httpData =
                 ]
             , httpRequests = []
             , portRequests = []
+            , noPriorTests = True
             }
                 |> Ok
 
@@ -826,12 +875,22 @@ dropPrefix prefix text =
 codegen : ParsedCode -> LoadedData -> List Event -> String
 codegen parsedCode model events =
     let
-        tests : String
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
                 |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
+
+        testsText : String
+        testsText =
+            tests
                 |> List.indexedMap (\index ( head, rest ) -> testCode model head.timestamp index (head :: rest))
                 |> String.join "\n    ,"
+                |> (\a ->
+                        if parsedCode.noPriorTests || List.isEmpty tests then
+                            a
+
+                        else
+                            "\n    ," ++ a
+                   )
 
         httpRequests : String
         httpRequests =
@@ -850,6 +909,7 @@ codegen parsedCode model events =
                 |> Dict.toList
                 |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
                 |> String.join "\n    , "
+                |> (\a -> "\nhttpRequests =\n    [ " ++ a ++ "\n    ]\n        ")
 
         localRequests : List ( String, String )
         localRequests =
@@ -881,6 +941,7 @@ codegen parsedCode model events =
                             Nothing
                 )
                 events
+                |> (\a -> List.map (\( b, ( c, d ) ) -> { triggeredFromPort = b, port_ = c, data = d }) parsedCode.portRequests ++ a)
                 |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
                 |> List.map
                     (\fromJsPort ->
@@ -898,6 +959,7 @@ codegen parsedCode model events =
                             ++ "))"
                     )
                 |> String.join "\n    , "
+                |> (\a -> "\nportRequests =\n    [ " ++ a ++ "\n    ]\n        ")
     in
     List.map
         (\codePart ->
@@ -912,7 +974,7 @@ codegen parsedCode model events =
                     portRequests
 
                 TestEntryPoint ->
-                    tests
+                    testsText
         )
         parsedCode.codeParts
         |> String.concat
@@ -1169,9 +1231,9 @@ testCode includes startTime testIndex events =
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
-                            ++ ".checkView (\\single -> Test.Html.Query.has [ "
+                            ++ ".checkView (Test.Html.Query.has [ "
                             ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
-                            ++ " ]\n"
+                            ++ " ])\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -1388,6 +1450,14 @@ loadedView model =
                     , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.includePagePos
                     , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
                     ]
+                , Ui.el
+                    [ Ui.Input.button PressedSelectFile
+                    , Ui.border 1
+                    , Ui.borderColor (Ui.rgb 100 100 100)
+                    , Ui.background (Ui.rgb 240 240 240)
+                    , Ui.padding 4
+                    ]
+                    (Ui.text "Select file")
                 ]
             , case model.parsedCode of
                 Ok _ ->
@@ -1419,7 +1489,7 @@ loadedView model =
                         ]
                         Ui.none
 
-                Err () ->
+                Err _ ->
                     Ui.none
             , case model.parsedCode of
                 Ok ok ->
@@ -1433,8 +1503,36 @@ loadedView model =
                             , Ui.padding 8
                             ]
 
-                Err () ->
-                    Ui.text ""
+                Err error ->
+                    (case error of
+                        InvalidPortRequests ->
+                            "The portRequests function was found but couldn't be parsed."
+
+                        InvalidHttpRequests ->
+                            "The httpRequests function was found but couldn't be parsed."
+
+                        InvalidHttpAndPortRequests ->
+                            "The portRequests and httpRequests functions were found but couldn't be parsed."
+
+                        PortRequestsNotFound ->
+                            "The portRequests function wasn't found."
+
+                        HttpRequestsNotFound ->
+                            "The httpRequests function wasn't found."
+
+                        TestEntryPointNotFound ->
+                            "The test entry point (the \"]\" at the end of the the tests function) wasn't found."
+
+                        UnknownError ->
+                            "This end-to-end test module appears to be corrupted or the wrong file is being loaded."
+
+                        PortRequestsEndNotFound ->
+                            "The portRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+
+                        HttpRequestsEndNotFound ->
+                            "The httpRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+                    )
+                        |> Ui.text
             ]
         ]
 

@@ -30,14 +30,27 @@ type alias LoadedData =
     , includePagePos : Bool
     , includeScreenPos : Bool
     , mouseDownOnEvent : Bool
-    , parsedCode : Result () ParsedCode
+    , parsedCode : Result ParseError ParsedCode
     }
+
+
+type ParseError
+    = InvalidPortRequests
+    | InvalidHttpRequests
+    | InvalidHttpAndPortRequests
+    | PortRequestsNotFound
+    | HttpRequestsNotFound
+    | TestEntryPointNotFound
+    | PortRequestsEndNotFound
+    | HttpRequestsEndNotFound
+    | UnknownError
 
 
 type alias ParsedCode =
     { codeParts : List Code
     , httpRequests : List ( String, String )
     , portRequests : List ( String, ( String, String ) )
+    , noPriorTests : Bool
     }
 
 
@@ -81,6 +94,8 @@ type FrontendMsg
     | ToggledIncludePagePos Bool
     | MouseUp
     | PressedEvent
+    | GotFile { name : String, content : String }
+    | PressedSelectFile
 
 
 type ToBackend

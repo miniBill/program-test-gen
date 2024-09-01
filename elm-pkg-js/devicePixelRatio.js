@@ -1,6 +1,50 @@
 exports.init = async function init(app)
 {
-    app.ports.copy_to_clipboard_to_js.subscribe(text => copyTextToClipboard(text));
+    var existingHandle = null;
+    app.ports.select_file_to_js.subscribe((a) => {
+        let options = {
+            types: [
+              {
+                description: "End-to-end test module",
+                accept: {
+                  "text/*": [".elm"],
+                },
+              },
+            ],
+            excludeAcceptAllOption: true,
+            multiple: false,
+          };
+        window.showOpenFilePicker(options).then((result) => { existingHandle = result[0] });
+    });
+
+    app.ports.write_file_to_js.subscribe((text) =>
+        {
+            try {
+                // create a new handle
+                if (existingHandle) {
+                    existingHandle.createWritable().then((writableStream) => {
+                        writableStream.write("This is my file content").then((a) => {
+                            writableStream.close();
+                        });
+                    });
+                }
+                else {
+                    window.showSaveFilePicker().then((newHandle) => {
+                        existingHandle = newHandle;
+                        newHandle.createWritable().then((writableStream) => {
+                                writableStream.write("This is my file content").then((a) => {
+                                    writableStream.close();
+                                });
+                            });
+                        });
+                }
+            } catch (err) {
+                console.error(err.name, err.message);
+            }
+        }
+    )
+
+    //app.ports.copy_to_clipboard_to_js.subscribe(text => copyTextToClipboard(text));
 
     function copyTextToClipboard(text) {
       if (!navigator.clipboard) {
