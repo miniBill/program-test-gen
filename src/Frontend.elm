@@ -187,17 +187,18 @@ updateLoaded msg model =
             case model.parsedCode of
                 ParseSuccess ok ->
                     let
+                        settings : Settings
                         settings =
                             model.settings
+
+                        text : String
+                        text =
+                            codegen
+                                ok
+                                { settings | showAllCode = True }
+                                (Array.toList model.history |> List.filter (\event -> not event.isHidden))
                     in
-                    ( model
-                    , codegen ok
-                        { settings | showAllCode = True }
-                        (Array.toList model.history
-                            |> List.filter (\event -> not event.isHidden)
-                        )
-                        |> write_file_to_js
-                    )
+                    ( { model | lastWrite = text }, write_file_to_js text )
 
                 _ ->
                     ( model, Cmd.none )
@@ -249,7 +250,17 @@ updateLoaded msg model =
 
         WroteToFile isSuccessful ->
             if isSuccessful then
-                ( { model | history = Array.empty, commitStatus = CommitSuccess }
+                ( { model
+                    | history = Array.empty
+                    , commitStatus = CommitSuccess
+                    , parsedCode =
+                        case parseCode model.lastWrite of
+                            Ok ok ->
+                                ParseSuccess ok
+
+                            Err _ ->
+                                model.parsedCode
+                  }
                 , Lamdera.sendToBackend ResetSessionRequest
                 )
 
@@ -363,6 +374,7 @@ updateFromBackend msg model =
                         , mouseDownOnEvent = False
                         , parsedCode = WaitingOnUser
                         , commitStatus = NotCommitted
+                        , lastWrite = ""
                         }
                     , Cmd.none
                     )
@@ -440,7 +452,7 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
                             end
 
                         [] ->
-                            String.length code - 1
+                            String.length code
             in
             case ( httpRequestsResult, portRequestsResult ) of
                 ( Ok httpRequests, Ok portRequests ) ->
@@ -457,7 +469,7 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
                             { previousIndex = 0, codeParts = [] }
                             sorted
                             |> .codeParts
-                            |> (\a -> UserCode (String.slice last (String.length code - 1) code) :: a)
+                            |> (\a -> UserCode (String.slice last (String.length code) code) :: a)
                             |> List.reverse
                     , httpRequests = httpRequests
                     , portRequests = portRequests
@@ -962,7 +974,7 @@ codegen parsedCode settings events =
                 |> String.join "\n    ,"
                 |> (\a ->
                         if parsedCode.noPriorTests || List.isEmpty tests then
-                            a
+                            a ++ "\n    "
 
                         else
                             "\n    ," ++ a

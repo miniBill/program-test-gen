@@ -30,6 +30,7 @@ type alias LoadedData =
     , parsedCode : ParsedCodeStatus
     , mouseDownOnEvent : Bool
     , commitStatus : CommitStatus
+    , lastWrite : String
     }
 
 
