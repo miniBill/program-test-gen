@@ -1,7 +1,6 @@
 port module Frontend exposing (addEvent, app)
 
 import Array exposing (Array)
-import AssocSet
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
@@ -50,6 +49,9 @@ port got_file_api_not_supported : (() -> msg) -> Sub msg
 port get_file_api_not_supported : () -> Cmd msg
 
 
+port set_overscroll : Bool -> Cmd msg
+
+
 app =
     Lamdera.frontend
         { init = init
@@ -78,6 +80,7 @@ init url key =
                 }
             , Cmd.batch
                 [ get_file_api_not_supported ()
+                , set_overscroll False
                 , Lamdera.sendToBackend (LoadSessionRequest (SessionName sessionName))
                 ]
             )
@@ -86,6 +89,7 @@ init url key =
             ( LoadingSession { key = key, sessionName = SessionName "" }
             , Cmd.batch
                 [ get_file_api_not_supported ()
+                , set_overscroll False
                 , Random.generate
                     GotRandomSessionName
                     (Random.map
@@ -542,23 +546,15 @@ handlePortToJs { currentRequest } =
 
 
 {-| Please don't modify or rename this function -}
-portRequests : Dict String (String, Json.Encode.Value)
-portRequests =
-    [ """
+portRequests : Dict String (String, Json.Encode.Value)"""
         , PortRequestCode
-        , UserCode """
-    ]
-        |> Dict.fromList
+        , UserCode """|> Dict.fromList
 
 
 {-| Please don't modify or rename this function -}
-httpRequests : Dict String String
-httpRequests =
-    [ """
+httpRequests : Dict String String"""
         , HttpRequestCode
-        , UserCode """
-    ]
-        |> Dict.fromList
+        , UserCode """|> Dict.fromList
 
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
@@ -677,120 +673,133 @@ eventsListContainer =
     "eventsListContainer"
 
 
+type alias MillisecondWaitBefore =
+    Int
+
+
 type EventType2
-    = Input2 ClientId { targetId : String, text : String }
-    | Click2 ClientId { targetId : String }
-    | ClickLink2 ClientId LinkEvent
-    | Connect2 ClientId ConnectEvent
-    | KeyUp2 ClientId KeyEvent
-    | KeyDown2 ClientId KeyEvent
-    | PointerDown2 ClientId PointerEvent
-    | PointerUp2 ClientId PointerEvent
-    | PointerMove2 ClientId PointerEvent
-    | PointerLeave2 ClientId PointerEvent
-    | PointerCancel2 ClientId PointerEvent
-    | PointerOver2 ClientId PointerEvent
-    | PointerEnter2 ClientId PointerEvent
-    | PointerOut2 ClientId PointerEvent
-    | TouchStart2 ClientId TouchEvent
-    | TouchCancel2 ClientId TouchEvent
-    | TouchMove2 ClientId TouchEvent
-    | TouchEnd2 ClientId TouchEvent
-    | FromJsPort2 ClientId { port_ : String, data : String }
-    | WindowResize2 ClientId WindowResizeEvent
-    | SimulateTime Int
-    | CheckView2 ClientId CheckViewEvent
+    = Input2 ClientId MillisecondWaitBefore { targetId : String, text : String }
+    | Click2 ClientId MillisecondWaitBefore { targetId : String }
+    | ClickLink2 ClientId MillisecondWaitBefore LinkEvent
+    | Connect2 ClientId MillisecondWaitBefore ConnectEvent
+    | KeyUp2 ClientId MillisecondWaitBefore KeyEvent
+    | KeyDown2 ClientId MillisecondWaitBefore KeyEvent
+    | PointerDown2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerUp2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerMove2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerLeave2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerCancel2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerOver2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerEnter2 ClientId MillisecondWaitBefore PointerEvent
+    | PointerOut2 ClientId MillisecondWaitBefore PointerEvent
+    | TouchStart2 ClientId MillisecondWaitBefore TouchEvent
+    | TouchCancel2 ClientId MillisecondWaitBefore TouchEvent
+    | TouchMove2 ClientId MillisecondWaitBefore TouchEvent
+    | TouchEnd2 ClientId MillisecondWaitBefore TouchEvent
+    | FromJsPort2 ClientId MillisecondWaitBefore { port_ : String, data : String }
+    | WindowResize2 ClientId MillisecondWaitBefore WindowResizeEvent
+    | CheckView2 ClientId MillisecondWaitBefore CheckViewEvent
 
 
-eventsToEvent2 : List Event -> List EventType2
-eventsToEvent2 events =
+eventsToEvent2 : Int -> List Event -> List EventType2
+eventsToEvent2 startTime events =
     List.foldl
         (\{ clientId, eventType, timestamp } state ->
+            let
+                delay : Int
+                delay =
+                    case state.previousEvent of
+                        Just previousEvent ->
+                            timestamp - previousEvent.time
+
+                        Nothing ->
+                            startTime - startTime
+            in
             case eventType of
                 Input input ->
-                    { previousEvent = Just { eventType = Input2 clientId input, time = timestamp }
+                    { previousEvent = Just { eventType = Input2 clientId delay input, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 KeyDown keyDown ->
-                    { previousEvent = Just { eventType = KeyDown2 clientId keyDown, time = timestamp }
+                    { previousEvent = Just { eventType = KeyDown2 clientId delay keyDown, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 KeyUp keyUp ->
-                    { previousEvent = Just { eventType = KeyUp2 clientId keyUp, time = timestamp }
+                    { previousEvent = Just { eventType = KeyUp2 clientId delay keyUp, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerDown a ->
-                    { previousEvent = Just { eventType = PointerDown2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerDown2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerUp a ->
-                    { previousEvent = Just { eventType = PointerUp2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerUp2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerMove a ->
-                    { previousEvent = Just { eventType = PointerMove2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerMove2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerLeave a ->
-                    { previousEvent = Just { eventType = PointerLeave2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerLeave2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerCancel a ->
-                    { previousEvent = Just { eventType = PointerCancel2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerCancel2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerOver a ->
-                    { previousEvent = Just { eventType = PointerOver2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerOver2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerEnter a ->
-                    { previousEvent = Just { eventType = PointerEnter2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerEnter2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 PointerOut a ->
-                    { previousEvent = Just { eventType = PointerOut2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = PointerOut2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 TouchStart a ->
-                    { previousEvent = Just { eventType = TouchStart2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = TouchStart2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 TouchCancel a ->
-                    { previousEvent = Just { eventType = TouchCancel2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = TouchCancel2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 TouchMove a ->
-                    { previousEvent = Just { eventType = TouchMove2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = TouchMove2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 TouchEnd a ->
-                    { previousEvent = Just { eventType = TouchEnd2 clientId a, time = timestamp }
+                    { previousEvent = Just { eventType = TouchEnd2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 Connect connect ->
-                    { previousEvent = Just { eventType = Connect2 clientId connect, time = timestamp }
+                    { previousEvent = Just { eventType = Connect2 clientId delay connect, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 Click mouseEvent ->
                     case mouseEvent.targetId of
                         Just targetId ->
-                            { previousEvent = Just { eventType = Click2 clientId { targetId = targetId }, time = timestamp }
+                            { previousEvent = Just { eventType = Click2 clientId delay { targetId = targetId }, time = timestamp }
                             , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                             }
 
@@ -798,7 +807,7 @@ eventsToEvent2 events =
                             state
 
                 ClickLink linkEvent ->
-                    { previousEvent = Just { eventType = ClickLink2 clientId linkEvent, time = timestamp }
+                    { previousEvent = Just { eventType = ClickLink2 clientId delay linkEvent, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
@@ -811,7 +820,7 @@ eventsToEvent2 events =
                 Paste pasteEvent ->
                     case pasteEvent.targetId of
                         Just targetId ->
-                            { previousEvent = Just { eventType = Input2 clientId { targetId = targetId, text = pasteEvent.text }, time = timestamp }
+                            { previousEvent = Just { eventType = Input2 clientId delay { targetId = targetId, text = pasteEvent.text }, time = timestamp }
                             , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                             }
 
@@ -828,7 +837,7 @@ eventsToEvent2 events =
 
                         Nothing ->
                             { previousEvent =
-                                { eventType = FromJsPort2 clientId { port_ = fromJsPort.port_, data = fromJsPort.data }
+                                { eventType = FromJsPort2 clientId delay { port_ = fromJsPort.port_, data = fromJsPort.data }
                                 , time = timestamp
                                 }
                                     |> Just
@@ -836,12 +845,12 @@ eventsToEvent2 events =
                             }
 
                 WindowResize resizeEvent ->
-                    { previousEvent = Just { eventType = WindowResize2 clientId resizeEvent, time = timestamp }
+                    { previousEvent = Just { eventType = WindowResize2 clientId delay resizeEvent, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
 
                 CheckView checkView ->
-                    { previousEvent = Just { eventType = CheckView2 clientId checkView, time = timestamp }
+                    { previousEvent = Just { eventType = CheckView2 clientId delay checkView, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
@@ -861,7 +870,7 @@ eventsToEvent2 events =
                                     event.time - time
                             in
                             if delta > 0 then
-                                event.eventType :: SimulateTime delta :: state.list
+                                event.eventType :: state.list
 
                             else
                                 event.eventType :: state.list
@@ -1002,7 +1011,7 @@ testCode settings startTime testIndex events =
     let
         clients : List ClientId
         clients =
-            List.map .clientId events |> AssocSet.fromList |> AssocSet.toList
+            List.map .clientId events |> List.Extra.unique
     in
     List.foldl
         (\event { code, indentation, clientCount } ->
@@ -1019,7 +1028,7 @@ testCode settings startTime testIndex events =
                             "tab"
             in
             case event of
-                Connect2 clientId { url, sessionId, windowWidth, windowHeight } ->
+                Connect2 clientId delay { url, sessionId, windowWidth, windowHeight } ->
                     let
                         state =
                             if clientCount == 0 then
@@ -1031,6 +1040,7 @@ testCode settings startTime testIndex events =
                     { code =
                         code
                             ++ (indent ++ "    |> T.connectFrontend\n")
+                            ++ (indent ++ "        " ++ String.fromInt delay ++ "\n")
                             ++ (indent ++ "        (Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
                             ++ (indent ++ "        (Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
                             ++ (indent ++ "        { width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
@@ -1040,13 +1050,15 @@ testCode settings startTime testIndex events =
                     , clientCount = clientCount + 1
                     }
 
-                WindowResize2 clientId resizeEvent ->
+                WindowResize2 clientId delay resizeEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
-                            ++ ".resizeWindow { width = "
+                            ++ ".resizeWindow "
+                            ++ String.fromInt delay
+                            ++ " { width = "
                             ++ String.fromInt resizeEvent.width
                             ++ ", height = "
                             ++ String.fromInt resizeEvent.height
@@ -1055,13 +1067,15 @@ testCode settings startTime testIndex events =
                     , clientCount = clientCount
                     }
 
-                KeyDown2 clientId keyEvent ->
+                KeyDown2 clientId delay keyEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
                             ++ ".keyDown "
+                            ++ String.fromInt delay
+                            ++ " "
                             ++ targetIdFunc keyEvent.targetId
                             ++ " \""
                             ++ keyEvent.key
@@ -1086,13 +1100,15 @@ testCode settings startTime testIndex events =
                     , clientCount = clientCount
                     }
 
-                KeyUp2 clientId keyEvent ->
+                KeyUp2 clientId delay keyEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
                             ++ ".keyUp "
+                            ++ String.fromInt delay
+                            ++ " "
                             ++ targetIdFunc keyEvent.targetId
                             ++ " \""
                             ++ keyEvent.key
@@ -1117,39 +1133,45 @@ testCode settings startTime testIndex events =
                     , clientCount = clientCount
                     }
 
-                Click2 clientId mouseEvent ->
+                Click2 clientId delay mouseEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
                             ++ ".clickButton "
+                            ++ String.fromInt delay
+                            ++ " "
                             ++ targetIdFunc mouseEvent.targetId
                             ++ "\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                ClickLink2 clientId mouseEvent ->
+                ClickLink2 clientId delay mouseEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
                             ++ ".clickLink \""
+                            ++ String.fromInt delay
+                            ++ " "
                             ++ mouseEvent.path
                             ++ "\"\n"
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                Input2 clientId { targetId, text } ->
+                Input2 clientId delay { targetId, text } ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
                             ++ ".inputText "
+                            ++ String.fromInt delay
+                            ++ " "
                             ++ targetIdFunc targetId
                             ++ " \""
                             ++ text
@@ -1158,97 +1180,93 @@ testCode settings startTime testIndex events =
                     , clientCount = clientCount
                     }
 
-                FromJsPort2 _ _ ->
+                FromJsPort2 _ _ _ ->
                     { code = code
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerDown2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerDown" (client clientId) a
+                PointerDown2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerDown" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerUp2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerUp" (client clientId) a
+                PointerUp2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerUp" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerMove2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerMove" (client clientId) a
+                PointerMove2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerLeave2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerLeave" (client clientId) a
+                PointerLeave2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerLeave" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerCancel2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerCancel" (client clientId) a
+                PointerCancel2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerOver2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerOver" (client clientId) a
+                PointerOver2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerOver" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerEnter2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerEnter" (client clientId) a
+                PointerEnter2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerEnter" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                PointerOut2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen settings "pointerOut" (client clientId) a
+                PointerOut2 clientId delay a ->
+                    { code = code ++ indent ++ pointerCodegen delay settings "pointerOut" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchStart2 clientId a ->
-                    { code = code ++ indent ++ touchCodegen "touchStart" (client clientId) a
+                TouchStart2 clientId delay a ->
+                    { code = code ++ indent ++ touchCodegen delay "touchStart" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchCancel2 clientId a ->
-                    { code = code ++ indent ++ touchCodegen "touchCancel" (client clientId) a
+                TouchCancel2 clientId delay a ->
+                    { code = code ++ indent ++ touchCodegen delay "touchCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchMove2 clientId a ->
-                    { code = code ++ indent ++ touchCodegen "touchMove" (client clientId) a
+                TouchMove2 clientId delay a ->
+                    { code = code ++ indent ++ touchCodegen delay "touchMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                TouchEnd2 clientId a ->
-                    { code = code ++ indent ++ touchCodegen "touchEnd" (client clientId) a
+                TouchEnd2 clientId delay a ->
+                    { code = code ++ indent ++ touchCodegen delay "touchEnd" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
-                SimulateTime duration ->
-                    { code = code ++ indent ++ "    |> T.wait (Duration.milliseconds " ++ String.fromInt duration ++ ")\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
-
-                CheckView2 clientId checkViewEvent ->
+                CheckView2 clientId delay checkViewEvent ->
                     { code =
                         code
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
-                            ++ ".checkView (Test.Html.Query.has [ "
+                            ++ ".checkView "
+                            ++ String.fromInt delay
+                            ++ " (Test.Html.Query.has [ "
                             ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
                             ++ " ])\n"
                     , indentation = indentation
@@ -1265,12 +1283,12 @@ testCode settings startTime testIndex events =
         , indentation = 0
         , clientCount = 0
         }
-        (eventsToEvent2 events)
+        (eventsToEvent2 startTime events)
         |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
 
 
-touchCodegen : String -> String -> TouchEvent -> String
-touchCodegen funcName client a =
+touchCodegen : MillisecondWaitBefore -> String -> String -> TouchEvent -> String
+touchCodegen delay funcName client a =
     let
         touchToString : Touch -> String
         touchToString touch =
@@ -1295,6 +1313,8 @@ touchCodegen funcName client a =
         ++ "."
         ++ funcName
         ++ " "
+        ++ String.fromInt delay
+        ++ " "
         ++ targetIdFunc a.targetId
         ++ " { targetTouches = [ "
         ++ String.join ", " (List.map touchToString a.targetTouches)
@@ -1303,8 +1323,8 @@ touchCodegen funcName client a =
         ++ " ] }\n"
 
 
-pointerCodegen : Settings -> String -> String -> PointerEvent -> String
-pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName client a =
+pointerCodegen : MillisecondWaitBefore -> Settings -> String -> String -> PointerEvent -> String
+pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcName client a =
     let
         options : List String
         options =
@@ -1376,6 +1396,8 @@ pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName c
         ++ client
         ++ "."
         ++ funcName
+        ++ " "
+        ++ String.fromInt delay
         ++ " "
         ++ targetIdFunc a.targetId
         ++ " ("

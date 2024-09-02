@@ -1,5 +1,16 @@
 exports.init = async function init(app)
 {
+    app.ports.set_overscroll.subscribe(bool => {
+        console.log("overscroll" + bool);
+        if (bool) {
+            document.body.style = "overscroll-behavior: auto;";
+        }
+        else
+        {
+            document.body.style = "overscroll-behavior: none;"
+        }
+    });
+
     var existingHandle = null;
 
     app.ports.get_file_api_not_supported.subscribe((a) => {
@@ -47,7 +58,6 @@ exports.init = async function init(app)
     app.ports.write_file_to_js.subscribe((text) =>
         {
             try {
-                // create a new handle
                 if (existingHandle) {
                     existingHandle.createWritable().then((writableStream) => {
                         writableStream.write(text).then((a) => {
