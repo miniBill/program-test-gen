@@ -31,9 +31,6 @@ import Url
 import Url.Parser
 
 
-port copy_to_clipboard_to_js : String -> Cmd msg
-
-
 port write_file_to_js : String -> Cmd msg
 
 
@@ -505,7 +502,6 @@ newCode =
 import Backend
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
-import Duration exposing (Duration)
 import Effect.Browser.Dom as Dom
 import Effect.Lamdera
 import Effect.Test as T exposing (FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..), PointerOptions(..))
@@ -896,8 +892,10 @@ dropPrefix prefix text =
 codegen : ParsedCode -> Settings -> List Event -> String
 codegen parsedCode settings events =
     let
+        tests : List ( Event, List Event )
         tests =
-            List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
+            List.Extra.dropWhile (\a -> a.eventType /= ResetBackend) events
+                |> List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend)
                 |> List.filter (\( _, rest ) -> not (List.isEmpty rest))
 
         testsText : String
@@ -917,16 +915,16 @@ codegen parsedCode settings events =
         let
             httpRequests : String
             httpRequests =
-                List.filterMap
-                    (\event ->
-                        case event.eventType of
-                            Http http ->
-                                ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
+                List.Extra.dropWhile (\a -> a.eventType /= ResetBackend) events
+                    |> List.filterMap
+                        (\event ->
+                            case event.eventType of
+                                Http http ->
+                                    ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
 
-                            _ ->
-                                Nothing
-                    )
-                    events
+                                _ ->
+                                    Nothing
+                        )
                     |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
                     |> Dict.fromList
                     |> Dict.toList
