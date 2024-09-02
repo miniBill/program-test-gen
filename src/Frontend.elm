@@ -997,7 +997,7 @@ codegen parsedCode settings events =
                     |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
                     |> Dict.fromList
                     |> Dict.toList
-                    |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
+                    |> List.map (\( first, second ) -> "( \"" ++ first ++ "\", \"" ++ second ++ "\" )")
                     |> String.join "\n    , "
                     |> (\a -> "\nhttpRequests =\n    [ " ++ a ++ "\n    ]\n        ")
 
@@ -1035,9 +1035,9 @@ codegen parsedCode settings events =
                     |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
                     |> List.map
                         (\fromJsPort ->
-                            "(\""
+                            "( \""
                                 ++ fromJsPort.triggeredFromPort
-                                ++ "\", (\""
+                                ++ "\", ( \""
                                 ++ fromJsPort.port_
                                 ++ "\", stringToJson "
                                 ++ (if String.contains "\"" fromJsPort.data then
@@ -1046,7 +1046,7 @@ codegen parsedCode settings events =
                                     else
                                         "\"" ++ fromJsPort.data ++ "\""
                                    )
-                                ++ "))"
+                                ++ " ) )"
                         )
                     |> String.join "\n    , "
                     |> (\a -> "\nportRequests =\n    [ " ++ a ++ "\n    ]\n        ")
