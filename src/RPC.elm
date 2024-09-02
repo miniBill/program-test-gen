@@ -324,9 +324,12 @@ lamdera_handleEndpoints _ args model =
                                                         Nothing ->
                                                             { history = Array.fromList [ event ]
                                                             , connections = AssocSet.empty
-                                                            , includeClientPos = True
-                                                            , includePagePos = True
-                                                            , includeScreenPos = False
+                                                            , settings =
+                                                                { includeClientPos = True
+                                                                , includePagePos = True
+                                                                , includeScreenPos = False
+                                                                , showAllCode = True
+                                                                }
                                                             }
                                                     )
                                                         |> Just

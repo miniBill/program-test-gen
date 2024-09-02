@@ -181,8 +181,16 @@ updateLoaded msg model =
         PressedSaveFile ->
             case model.parsedCode of
                 ParseSuccess ok ->
+                    let
+                        settings =
+                            model.settings
+                    in
                     ( model
-                    , codegen ok model (Array.toList model.history |> List.filter (\event -> not event.isHidden))
+                    , codegen ok
+                        { settings | showAllCode = True }
+                        (Array.toList model.history
+                            |> List.filter (\event -> not event.isHidden)
+                        )
                         |> write_file_to_js
                     )
 
@@ -193,34 +201,13 @@ updateLoaded msg model =
             ( { model | elmUiState = Ui.Anim.update ElmUiMsg msg2 model.elmUiState }, Cmd.none )
 
         ToggledIncludeScreenPos bool ->
-            ( { model | includeScreenPos = bool }
-            , SetIncludeScreenPageClientPos
-                { includeScreenPos = bool
-                , includePagePos = model.includePagePos
-                , includeClientPos = model.includeClientPos
-                }
-                |> Lamdera.sendToBackend
-            )
+            updateSettings (\settings -> { settings | includeScreenPos = bool }) model
 
         ToggledIncludeClientPos bool ->
-            ( { model | includeClientPos = bool }
-            , SetIncludeScreenPageClientPos
-                { includeScreenPos = model.includeScreenPos
-                , includePagePos = model.includePagePos
-                , includeClientPos = bool
-                }
-                |> Lamdera.sendToBackend
-            )
+            updateSettings (\settings -> { settings | includeClientPos = bool }) model
 
         ToggledIncludePagePos bool ->
-            ( { model | includePagePos = bool }
-            , SetIncludeScreenPageClientPos
-                { includeScreenPos = model.includeScreenPos
-                , includePagePos = bool
-                , includeClientPos = model.includeClientPos
-                }
-                |> Lamdera.sendToBackend
-            )
+            updateSettings (\settings -> { settings | includePagePos = bool }) model
 
         MouseUp ->
             ( { model | mouseDownOnEvent = False }, Cmd.none )
@@ -250,11 +237,19 @@ updateLoaded msg model =
             )
 
         FileApiNotSupportedFromPort ->
-            let
-                _ =
-                    Debug.log "a" "12356"
-            in
             ( { model | parsedCode = FileApiNotSupported }, Cmd.none )
+
+        ToggledShowAllCode bool ->
+            updateSettings (\settings -> { settings | showAllCode = bool }) model
+
+
+updateSettings : (Settings -> Settings) -> LoadedData -> ( LoadedData, Cmd frontendMsg )
+updateSettings updateFunc model =
+    let
+        settings2 =
+            updateFunc model.settings
+    in
+    ( { model | settings = settings2 }, SetSettingsRequest settings2 |> Lamdera.sendToBackend )
 
 
 addEvent : Event -> { a | history : Array Event } -> { a | history : Array Event }
@@ -350,9 +345,7 @@ updateFromBackend msg model =
                         , history = events.history
                         , copyCounter = 0
                         , elmUiState = Ui.Anim.init
-                        , includeScreenPos = events.includeScreenPos
-                        , includePagePos = events.includePagePos
-                        , includeClientPos = events.includeClientPos
+                        , settings = events.settings
                         , mouseDownOnEvent = False
                         , parsedCode = WaitingOnUser
                         }
@@ -878,8 +871,8 @@ dropPrefix prefix text =
         text
 
 
-codegen : ParsedCode -> LoadedData -> List Event -> String
-codegen parsedCode model events =
+codegen : ParsedCode -> Settings -> List Event -> String
+codegen parsedCode settings events =
     let
         tests =
             List.Extra.groupWhile (\a _ -> a.eventType /= ResetBackend) events
@@ -888,7 +881,7 @@ codegen parsedCode model events =
         testsText : String
         testsText =
             tests
-                |> List.indexedMap (\index ( head, rest ) -> testCode model head.timestamp index (head :: rest))
+                |> List.indexedMap (\index ( head, rest ) -> testCode settings head.timestamp index (head :: rest))
                 |> String.join "\n    ,"
                 |> (\a ->
                         if parsedCode.noPriorTests || List.isEmpty tests then
@@ -897,97 +890,102 @@ codegen parsedCode model events =
                         else
                             "\n    ," ++ a
                    )
-
-        httpRequests : String
-        httpRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        Http http ->
-                            ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
-
-                        _ ->
-                            Nothing
-                )
-                events
-                |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
-                |> Dict.fromList
-                |> Dict.toList
-                |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
-                |> String.join "\n    , "
-                |> (\a -> "\nhttpRequests =\n    [ " ++ a ++ "\n    ]\n        ")
-
-        localRequests : List ( String, String )
-        localRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        HttpLocal { filepath } ->
-                            Just ( "GET_" ++ filepath, "/public" ++ filepath )
-
-                        _ ->
-                            Nothing
-                )
-                events
-
-        portRequests : String
-        portRequests =
-            List.filterMap
-                (\event ->
-                    case event.eventType of
-                        FromJsPort fromJsPort ->
-                            case fromJsPort.triggeredFromPort of
-                                Just trigger ->
-                                    Just { triggeredFromPort = trigger, port_ = fromJsPort.port_, data = fromJsPort.data }
-
-                                Nothing ->
-                                    Nothing
-
-                        _ ->
-                            Nothing
-                )
-                events
-                |> (\a -> List.map (\( b, ( c, d ) ) -> { triggeredFromPort = b, port_ = c, data = d }) parsedCode.portRequests ++ a)
-                |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
-                |> List.map
-                    (\fromJsPort ->
-                        "(\""
-                            ++ fromJsPort.triggeredFromPort
-                            ++ "\", (\""
-                            ++ fromJsPort.port_
-                            ++ "\", stringToJson "
-                            ++ (if String.contains "\"" fromJsPort.data then
-                                    "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
-
-                                else
-                                    "\"" ++ fromJsPort.data ++ "\""
-                               )
-                            ++ "))"
-                    )
-                |> String.join "\n    , "
-                |> (\a -> "\nportRequests =\n    [ " ++ a ++ "\n    ]\n        ")
     in
-    List.map
-        (\codePart ->
-            case codePart of
-                UserCode code ->
-                    code
+    if settings.showAllCode then
+        let
+            httpRequests : String
+            httpRequests =
+                List.filterMap
+                    (\event ->
+                        case event.eventType of
+                            Http http ->
+                                ( http.method ++ "_" ++ dropPrefix "http://localhost:8001/" http.url, http.filepath ) |> Just
 
-                HttpRequestCode ->
-                    httpRequests
+                            _ ->
+                                Nothing
+                    )
+                    events
+                    |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
+                    |> Dict.fromList
+                    |> Dict.toList
+                    |> List.map (\( first, second ) -> "(\"" ++ first ++ "\", \"" ++ second ++ "\")")
+                    |> String.join "\n    , "
+                    |> (\a -> "\nhttpRequests =\n    [ " ++ a ++ "\n    ]\n        ")
 
-                PortRequestCode ->
-                    portRequests
+            localRequests : List ( String, String )
+            localRequests =
+                List.filterMap
+                    (\event ->
+                        case event.eventType of
+                            HttpLocal { filepath } ->
+                                Just ( "GET_" ++ filepath, "/public" ++ filepath )
 
-                TestEntryPoint ->
-                    testsText
-        )
-        parsedCode.codeParts
-        |> String.concat
+                            _ ->
+                                Nothing
+                    )
+                    events
+
+            portRequests : String
+            portRequests =
+                List.filterMap
+                    (\event ->
+                        case event.eventType of
+                            FromJsPort fromJsPort ->
+                                case fromJsPort.triggeredFromPort of
+                                    Just trigger ->
+                                        Just { triggeredFromPort = trigger, port_ = fromJsPort.port_, data = fromJsPort.data }
+
+                                    Nothing ->
+                                        Nothing
+
+                            _ ->
+                                Nothing
+                    )
+                    events
+                    |> (\a -> List.map (\( b, ( c, d ) ) -> { triggeredFromPort = b, port_ = c, data = d }) parsedCode.portRequests ++ a)
+                    |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
+                    |> List.map
+                        (\fromJsPort ->
+                            "(\""
+                                ++ fromJsPort.triggeredFromPort
+                                ++ "\", (\""
+                                ++ fromJsPort.port_
+                                ++ "\", stringToJson "
+                                ++ (if String.contains "\"" fromJsPort.data then
+                                        "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
+
+                                    else
+                                        "\"" ++ fromJsPort.data ++ "\""
+                                   )
+                                ++ "))"
+                        )
+                    |> String.join "\n    , "
+                    |> (\a -> "\nportRequests =\n    [ " ++ a ++ "\n    ]\n        ")
+        in
+        List.map
+            (\codePart ->
+                case codePart of
+                    UserCode code ->
+                        code
+
+                    HttpRequestCode ->
+                        httpRequests
+
+                    PortRequestCode ->
+                        portRequests
+
+                    TestEntryPoint ->
+                        testsText
+            )
+            parsedCode.codeParts
+            |> String.concat
+
+    else
+        testsText
 
 
-testCode : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> Int -> Int -> List Event -> String
-testCode includes startTime testIndex events =
+testCode : Settings -> Int -> Int -> List Event -> String
+testCode settings startTime testIndex events =
     let
         clients : List ClientId
         clients =
@@ -1154,49 +1152,49 @@ testCode includes startTime testIndex events =
                     }
 
                 PointerDown2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerDown" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerDown" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerUp2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerUp" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerUp" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerMove2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerMove" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerMove" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerLeave2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerLeave" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerLeave" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerCancel2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerCancel" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerCancel" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOver2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerOver" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerOver" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerEnter2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerEnter" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerEnter" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
 
                 PointerOut2 clientId a ->
-                    { code = code ++ indent ++ pointerCodegen includes "pointerOut" (client clientId) a
+                    { code = code ++ indent ++ pointerCodegen settings "pointerOut" (client clientId) a
                     , indentation = indentation
                     , clientCount = clientCount
                     }
@@ -1292,7 +1290,7 @@ touchCodegen funcName client a =
         ++ " ] }\n"
 
 
-pointerCodegen : { a | includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool } -> String -> String -> PointerEvent -> String
+pointerCodegen : Settings -> String -> String -> PointerEvent -> String
 pointerCodegen { includeClientPos, includePagePos, includeScreenPos } funcName client a =
     let
         options : List String
@@ -1402,6 +1400,10 @@ view model =
     }
 
 
+faintBorderColor =
+    Ui.borderColor (Ui.rgb 160 150 140)
+
+
 loadedView : LoadedData -> Ui.Element FrontendMsg
 loadedView model =
     case model.parsedCode of
@@ -1443,27 +1445,29 @@ loadedView model =
                     , Ui.width Ui.shrink
                     , Ui.background (Ui.rgb 255 250 245)
                     , Ui.borderWith { left = 0, right = 1, top = 0, bottom = 0 }
-                    , Ui.borderColor (Ui.rgb 245 240 235)
+                    , Ui.borderColor (Ui.rgb 120 110 100)
                     ]
                     [ Ui.row
-                        []
+                        [ Ui.borderWith { top = 0, left = 0, right = 0, bottom = 1 }, faintBorderColor ]
                         [ Ui.el [ Ui.Font.bold, Ui.paddingWith { left = 8, right = 8, top = 8, bottom = 4 } ] (Ui.text "Unsaved events")
                         , Ui.el
                             [ Ui.Input.button PressedResetSession
                             , Ui.border 1
-                            , Ui.borderColor (Ui.rgb 120 110 100)
+                            , faintBorderColor
                             , Ui.background (Ui.rgb 240 235 230)
                             , Ui.width Ui.shrink
                             , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                            , Ui.borderWith { top = 0, left = 1, right = 0, bottom = 0 }
                             ]
                             (Ui.text "Clear")
                         , Ui.el
                             [ Ui.Input.button PressedSaveFile
                             , Ui.border 1
-                            , Ui.borderColor (Ui.rgb 120 110 100)
+                            , faintBorderColor
                             , Ui.background (Ui.rgb 240 235 230)
                             , Ui.width Ui.shrink
                             , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
+                            , Ui.borderWith { top = 0, left = 1, right = 0, bottom = 0 }
                             ]
                             (Ui.text "Save to file")
                         ]
@@ -1484,16 +1488,17 @@ loadedView model =
                                 , Ui.padding 4
                                 ]
                                 (Ui.text "Reset\u{00A0}Backend")
-                            , Ui.text " in lamdera live to end the current test and start a new test"
+                            , Ui.text " in lamdera live to start a new test"
                             ]
                         , Ui.column
                             []
-                            [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.includeClientPos
-                            , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.includePagePos
-                            , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.includeScreenPos
+                            [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.settings.includeClientPos
+                            , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.settings.includePagePos
+                            , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.settings.includeScreenPos
+                            , simpleCheckbox ToggledShowAllCode "Show all generated code" model.settings.showAllCode
                             ]
                         ]
-                     , codegen parsed model (List.filter (\event -> not event.isHidden) eventsList)
+                     , codegen parsed model.settings (List.filter (\event -> not event.isHidden) eventsList)
                         |> Ui.text
                         |> Ui.el
                             [ Ui.Font.family [ Ui.Font.monospace ]
@@ -1501,6 +1506,8 @@ loadedView model =
                             , Ui.Font.exactWhitespace
                             , Ui.scrollable
                             , Ui.padding 8
+                            , Ui.borderWith { top = 1, left = 0, right = 0, bottom = 0 }
+                            , faintBorderColor
                             ]
                      ]
                      --(case model.parsedCode of
@@ -1576,8 +1583,8 @@ loadedView model =
 
         FileApiNotSupported ->
             Ui.el
-                [ Ui.centerX, Ui.centerY, Ui.widthMax 400, Ui.Font.size 20 ]
-                (Ui.text "Your browser doesn't support the File System API. It's needed in order to read and write to your end-to-end test module. It should work on Chrome (sorry).")
+                [ Ui.centerX, Ui.centerY, Ui.widthMax 600, Ui.Font.size 20 ]
+                (Ui.text "Your browser doesn't support the File System API. It's needed in order to read and write to your end-to-end test module. It should work if you switch to Chrome (sorry).")
 
 
 simpleCheckbox : (Bool -> msg) -> String -> Bool -> Ui.Element msg
@@ -1603,7 +1610,7 @@ eventsView : List Event -> Ui.Element FrontendMsg
 eventsView events =
     case events of
         [] ->
-            Ui.el [ Ui.width (Ui.px 240), Ui.padding 16 ] (Ui.text "No events have arrived")
+            Ui.el [ Ui.padding 16 ] (Ui.text "No events have arrived")
 
         _ ->
             List.indexedMap
@@ -1716,8 +1723,7 @@ eventsView events =
                 )
                 events
                 |> Ui.column
-                    [ Ui.width (Ui.px 240)
-                    , Ui.Font.size 14
+                    [ Ui.Font.size 14
                     , Ui.paddingXY 8 0
                     , Ui.clipWithEllipsis
                     , Ui.paddingWith { left = 0, right = 0, top = 4, bottom = 8 }

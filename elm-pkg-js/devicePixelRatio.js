@@ -7,7 +7,7 @@ exports.init = async function init(app)
             // For some reason Elm doesn't pick up on this port call unless there's a delay
             setTimeout(function () {
                 app.ports.got_file_api_not_supported.send(null);
-            }, 1);
+            }, 1000);
         }
     });
 

@@ -26,11 +26,17 @@ type alias LoadedData =
     , history : Array Event
     , copyCounter : Int
     , elmUiState : Ui.Anim.State
-    , includeClientPos : Bool
+    , settings : Settings
+    , parsedCode : ParsedCodeStatus
+    , mouseDownOnEvent : Bool
+    }
+
+
+type alias Settings =
+    { includeClientPos : Bool
     , includePagePos : Bool
     , includeScreenPos : Bool
-    , mouseDownOnEvent : Bool
-    , parsedCode : ParsedCodeStatus
+    , showAllCode : Bool
     }
 
 
@@ -76,9 +82,7 @@ type alias BackendModel =
 type alias Session =
     { history : Array Event
     , connections : AssocSet.Set ClientId
-    , includeClientPos : Bool
-    , includePagePos : Bool
-    , includeScreenPos : Bool
+    , settings : Settings
     }
 
 
@@ -105,13 +109,14 @@ type FrontendMsg
     | PressedNewFile
     | PressedSaveFile
     | FileApiNotSupportedFromPort
+    | ToggledShowAllCode Bool
 
 
 type ToBackend
     = LoadSessionRequest SessionName
     | ResetSessionRequest
     | SetEventVisibilityRequest { index : Int, isHidden : Bool }
-    | SetIncludeScreenPageClientPos { includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool }
+    | SetSettingsRequest Settings
 
 
 type BackendMsg
@@ -119,7 +124,7 @@ type BackendMsg
 
 
 type ToFrontend
-    = LoadSessionResponse { history : Array Event, includeClientPos : Bool, includePagePos : Bool, includeScreenPos : Bool }
+    = LoadSessionResponse { history : Array Event, settings : Settings }
     | SessionUpdate Event
     | ResetSession
 

@@ -57,13 +57,7 @@ updateFromFrontend sessionId clientId msg model =
                       }
                     , Lamdera.sendToFrontend
                         clientId
-                        (LoadSessionResponse
-                            { history = session.history
-                            , includeScreenPos = session.includeScreenPos
-                            , includeClientPos = session.includeClientPos
-                            , includePagePos = session.includePagePos
-                            }
-                        )
+                        (LoadSessionResponse { history = session.history, settings = session.settings })
                     )
 
                 Nothing ->
@@ -72,9 +66,12 @@ updateFromFrontend sessionId clientId msg model =
                         session =
                             { history = Array.empty
                             , connections = AssocSet.singleton clientId
-                            , includeScreenPos = False
-                            , includePagePos = True
-                            , includeClientPos = True
+                            , settings =
+                                { includeScreenPos = False
+                                , includePagePos = True
+                                , includeClientPos = True
+                                , showAllCode = True
+                                }
                             }
                     in
                     ( { model | sessions = AssocList.insert sessionName session model.sessions }
@@ -82,9 +79,7 @@ updateFromFrontend sessionId clientId msg model =
                         clientId
                         (LoadSessionResponse
                             { history = session.history
-                            , includeScreenPos = session.includeScreenPos
-                            , includeClientPos = session.includeClientPos
-                            , includePagePos = session.includePagePos
+                            , settings = session.settings
                             }
                         )
                     )
@@ -127,20 +122,10 @@ updateFromFrontend sessionId clientId msg model =
                 Nothing ->
                     ( model, Cmd.none )
 
-        SetIncludeScreenPageClientPos data ->
+        SetSettingsRequest data ->
             case getSessionByClientId clientId model of
                 Just ( sessionName, session ) ->
-                    ( { model
-                        | sessions =
-                            AssocList.insert
-                                sessionName
-                                { session
-                                    | includeClientPos = data.includeClientPos
-                                    , includePagePos = data.includePagePos
-                                    , includeScreenPos = data.includeScreenPos
-                                }
-                                model.sessions
-                      }
+                    ( { model | sessions = AssocList.insert sessionName { session | settings = data } model.sessions }
                     , Cmd.none
                     )
 
