@@ -29,7 +29,14 @@ type alias LoadedData =
     , settings : Settings
     , parsedCode : ParsedCodeStatus
     , mouseDownOnEvent : Bool
+    , commitStatus : CommitStatus
     }
+
+
+type CommitStatus
+    = NotCommitted
+    | CommitSuccess
+    | CommitFailed
 
 
 type alias Settings =
@@ -102,14 +109,15 @@ type FrontendMsg
     | ToggledIncludeScreenPos Bool
     | ToggledIncludeClientPos Bool
     | ToggledIncludePagePos Bool
-    | MouseUp
+    | MouseUpEvent
     | PressedEvent
     | GotFile { name : String, content : String }
     | PressedSelectFile
     | PressedNewFile
-    | PressedSaveFile
+    | PressedCommitToFile
     | FileApiNotSupportedFromPort
     | ToggledShowAllCode Bool
+    | WroteToFile Bool
 
 
 type ToBackend
@@ -140,7 +148,7 @@ type alias Event =
 type EventType
     = KeyDown KeyEvent
     | KeyUp KeyEvent
-    | Click MouseEvent
+    | Click ClickEvent
     | ClickLink LinkEvent
     | Http HttpEvent
     | HttpLocal HttpLocalEvent
@@ -163,6 +171,13 @@ type EventType
     | TouchMove TouchEvent
     | TouchEnd TouchEvent
     | CheckView CheckViewEvent
+    | MouseDown MouseEvent
+    | MouseUp MouseEvent
+    | MouseMove MouseEvent
+    | MouseLeave MouseEvent
+    | MouseOver MouseEvent
+    | MouseEnter MouseEvent
+    | MouseOut MouseEvent
 
 
 type alias CheckViewEvent =
@@ -193,6 +208,24 @@ type alias PointerEvent =
     , pressure : Float
     , tiltX : Float
     , tiltY : Float
+    }
+
+
+type alias MouseEvent =
+    { targetId : String
+    , ctrlKey : Bool
+    , shiftKey : Bool
+    , metaKey : Bool
+    , altKey : Bool
+    , clientX : Float
+    , clientY : Float
+    , offsetX : Float
+    , offsetY : Float
+    , pageX : Float
+    , pageY : Float
+    , screenX : Float
+    , screenY : Float
+    , button : Int
     }
 
 
@@ -249,7 +282,7 @@ type alias KeyEvent =
     }
 
 
-type alias MouseEvent =
+type alias ClickEvent =
     { targetId : Maybe String
     }
 

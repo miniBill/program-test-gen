@@ -59,23 +59,31 @@ exports.init = async function init(app)
         {
             try {
                 if (existingHandle) {
-                    existingHandle.createWritable().then((writableStream) => {
-                        writableStream.write(text).then((a) => {
-                            writableStream.close();
-                        });
-                    });
+                    existingHandle
+                        .createWritable()
+                        .then((writableStream) => {
+                            writableStream.write(text).then((a) => {
+                                writableStream.close();
+                                app.ports.write_file_from_js.send(true);
+                            });
+                        })
+                        .catch(error => app.ports.write_file_from_js.send(false));;
                 }
                 else {
-                    window.showSaveFilePicker().then((newHandle) => {
-                        existingHandle = newHandle;
-                        newHandle.createWritable().then((writableStream) => {
-                                writableStream.write(text).then((a) => {
-                                    writableStream.close();
+                    window.showSaveFilePicker()
+                        .then((newHandle) => {
+                            existingHandle = newHandle;
+                            newHandle.createWritable().then((writableStream) => {
+                                    writableStream.write(text).then((a) => {
+                                        writableStream.close();
+                                        app.ports.write_file_from_js.send(true);
+                                    });
                                 });
-                            });
-                        });
+                            })
+                        .catch(error => app.ports.write_file_from_js.send(false));
                 }
             } catch (err) {
+                app.ports.write_file_from_js.send(false);
             }
         }
     )

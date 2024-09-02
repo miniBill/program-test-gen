@@ -44,7 +44,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder a value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder checkViewEncoder mouseDownEncoder mouseUpEncoder mouseMoveEncoder mouseLeaveEncoder mouseOverEncoder mouseEnterEncoder mouseOutEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -119,11 +119,32 @@ eventTypeCodec =
                     touchEndEncoder arg0
 
                 Types.CheckView arg0 ->
-                    a arg0
+                    checkViewEncoder arg0
+
+                Types.MouseDown arg0 ->
+                    mouseDownEncoder arg0
+
+                Types.MouseUp arg0 ->
+                    mouseUpEncoder arg0
+
+                Types.MouseMove arg0 ->
+                    mouseMoveEncoder arg0
+
+                Types.MouseLeave arg0 ->
+                    mouseLeaveEncoder arg0
+
+                Types.MouseOver arg0 ->
+                    mouseOverEncoder arg0
+
+                Types.MouseEnter arg0 ->
+                    mouseEnterEncoder arg0
+
+                Types.MouseOut arg0 ->
+                    mouseOutEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
-        |> Codec.variant1 "Click" Types.Click mouseEventCodec
+        |> Codec.variant1 "Click" Types.Click clickEventCodec
         |> Codec.variant1 "ClickLink" Types.ClickLink linkEventCodec
         |> Codec.variant1 "Http" Types.Http httpEventCodec
         |> Codec.variant1 "HttpLocal" Types.HttpLocal httpLocalEventCodec
@@ -146,7 +167,34 @@ eventTypeCodec =
         |> Codec.variant1 "TouchMove" Types.TouchMove touchEventCodec
         |> Codec.variant1 "TouchEnd" Types.TouchEnd touchEventCodec
         |> Codec.variant1 "CheckView" Types.CheckView checkViewCodec
+        |> Codec.variant1 "MouseDown" Types.MouseDown mouseEventCodec
+        |> Codec.variant1 "MouseUp" Types.MouseUp mouseEventCodec
+        |> Codec.variant1 "MouseMove" Types.MouseMove mouseEventCodec
+        |> Codec.variant1 "MouseLeave" Types.MouseLeave mouseEventCodec
+        |> Codec.variant1 "MouseOver" Types.MouseOver mouseEventCodec
+        |> Codec.variant1 "MouseEnter" Types.MouseEnter mouseEventCodec
+        |> Codec.variant1 "MouseOut" Types.MouseOut mouseEventCodec
         |> Codec.buildCustom
+
+
+mouseEventCodec : Codec Types.MouseEvent
+mouseEventCodec =
+    Codec.object Types.MouseEvent
+        |> Codec.field "targetId" .targetId Codec.string
+        |> Codec.field "ctrlKey" .ctrlKey Codec.bool
+        |> Codec.field "shiftKey" .shiftKey Codec.bool
+        |> Codec.field "metaKey" .metaKey Codec.bool
+        |> Codec.field "altKey" .altKey Codec.bool
+        |> Codec.field "clientX" .clientX Codec.float
+        |> Codec.field "clientY" .clientY Codec.float
+        |> Codec.field "offsetX" .offsetX Codec.float
+        |> Codec.field "offsetY" .offsetY Codec.float
+        |> Codec.field "pageX" .pageX Codec.float
+        |> Codec.field "pageY" .pageY Codec.float
+        |> Codec.field "screenX" .screenX Codec.float
+        |> Codec.field "screenY" .screenY Codec.float
+        |> Codec.field "button" .button Codec.int
+        |> Codec.buildObject
 
 
 checkViewCodec : Codec Types.CheckViewEvent
@@ -233,9 +281,9 @@ keyEventCodec =
         |> Codec.buildObject
 
 
-mouseEventCodec : Codec Types.MouseEvent
-mouseEventCodec =
-    Codec.object Types.MouseEvent
+clickEventCodec : Codec Types.ClickEvent
+clickEventCodec =
+    Codec.object Types.ClickEvent
         |> Codec.field "targetId" .targetId (Codec.nullable Codec.string)
         |> Codec.buildObject
 

@@ -34,6 +34,9 @@ import Url.Parser
 port write_file_to_js : String -> Cmd msg
 
 
+port write_file_from_js : (Bool -> msg) -> Sub msg
+
+
 port select_file_to_js : () -> Cmd msg
 
 
@@ -59,9 +62,10 @@ app =
         , subscriptions =
             \_ ->
                 Sub.batch
-                    [ Browser.Events.onMouseUp (Json.Decode.succeed MouseUp)
+                    [ Browser.Events.onMouseUp (Json.Decode.succeed MouseUpEvent)
                     , select_file_from_js GotFile
                     , got_file_api_not_supported (\() -> FileApiNotSupportedFromPort)
+                    , write_file_from_js WroteToFile
                     ]
         , view = view
         }
@@ -179,7 +183,7 @@ updateLoaded msg model =
             else
                 ( model, Cmd.none )
 
-        PressedSaveFile ->
+        PressedCommitToFile ->
             case model.parsedCode of
                 ParseSuccess ok ->
                     let
@@ -210,7 +214,7 @@ updateLoaded msg model =
         ToggledIncludePagePos bool ->
             updateSettings (\settings -> { settings | includePagePos = bool }) model
 
-        MouseUp ->
+        MouseUpEvent ->
             ( { model | mouseDownOnEvent = False }, Cmd.none )
 
         PressedEvent ->
@@ -242,6 +246,15 @@ updateLoaded msg model =
 
         ToggledShowAllCode bool ->
             updateSettings (\settings -> { settings | showAllCode = bool }) model
+
+        WroteToFile isSuccessful ->
+            if isSuccessful then
+                ( { model | history = Array.empty, commitStatus = CommitSuccess }
+                , Lamdera.sendToBackend ResetSessionRequest
+                )
+
+            else
+                ( { model | commitStatus = CommitFailed }, Cmd.none )
 
 
 updateSettings : (Settings -> Settings) -> LoadedData -> ( LoadedData, Cmd frontendMsg )
@@ -349,6 +362,7 @@ updateFromBackend msg model =
                         , settings = events.settings
                         , mouseDownOnEvent = False
                         , parsedCode = WaitingOnUser
+                        , commitStatus = NotCommitted
                         }
                     , Cmd.none
                     )
@@ -359,7 +373,7 @@ updateFromBackend msg model =
         SessionUpdate event ->
             case model of
                 LoadedSession loaded ->
-                    ( addEvent event loaded |> LoadedSession
+                    ( addEvent event { loaded | commitStatus = NotCommitted } |> LoadedSession
                     , Browser.Dom.setViewportOf eventsListContainer 0 99999
                         |> Task.attempt (\_ -> ScrolledToBottom)
                     )
@@ -383,6 +397,7 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
         fromListIndices =
             String.indexes "|> Dict.fromList" code
 
+        testsEndIndex : Maybe Int
         testsEndIndex =
             case List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code) of
                 Just index ->
@@ -695,6 +710,13 @@ type EventType2
     | FromJsPort2 ClientId MillisecondWaitBefore { port_ : String, data : String }
     | WindowResize2 ClientId MillisecondWaitBefore WindowResizeEvent
     | CheckView2 ClientId MillisecondWaitBefore CheckViewEvent
+    | MouseDown2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseUp2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseMove2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseLeave2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseOver2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseEnter2 ClientId MillisecondWaitBefore MouseEvent
+    | MouseOut2 ClientId MillisecondWaitBefore MouseEvent
 
 
 eventsToEvent2 : Int -> List Event -> List EventType2
@@ -847,6 +869,41 @@ eventsToEvent2 startTime events =
 
                 CheckView checkView ->
                     { previousEvent = Just { eventType = CheckView2 clientId delay checkView, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseDown a ->
+                    { previousEvent = Just { eventType = MouseDown2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseUp a ->
+                    { previousEvent = Just { eventType = MouseUp2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseMove a ->
+                    { previousEvent = Just { eventType = MouseMove2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseLeave a ->
+                    { previousEvent = Just { eventType = MouseLeave2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseOver a ->
+                    { previousEvent = Just { eventType = MouseOver2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseEnter a ->
+                    { previousEvent = Just { eventType = MouseEnter2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                MouseOut a ->
+                    { previousEvent = Just { eventType = MouseOut2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
@@ -1270,6 +1327,48 @@ testCode settings startTime testIndex events =
                     , indentation = indentation
                     , clientCount = clientCount
                     }
+
+                MouseDown2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseDown" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseUp2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseUp" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseMove2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseMove" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseLeave2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseLeave" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseOver2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseOver" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseEnter2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseEnter" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                MouseOut2 clientId delay a ->
+                    { code = code ++ indent ++ mouseCodegen delay settings "mouseOut" (client clientId) a
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
         )
         { code =
             " T.start \"test"
@@ -1407,6 +1506,82 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
         ++ " ]\n"
 
 
+mouseCodegen : MillisecondWaitBefore -> Settings -> String -> String -> MouseEvent -> String
+mouseCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcName client a =
+    let
+        options : List String
+        options =
+            List.filterMap
+                (\( name, include, ( x, y ) ) ->
+                    if (x == a.offsetX && y == a.offsetY) || not include then
+                        Nothing
+
+                    else
+                        Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+                )
+                [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
+                , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
+                , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
+                ]
+                ++ List.filterMap
+                    identity
+                    [ case a.button of
+                        1 ->
+                            Just "PointerButton MainButton"
+
+                        2 ->
+                            Just "PointerButton MiddleButton"
+
+                        3 ->
+                            Just "PointerButton SecondButton"
+
+                        4 ->
+                            Just "PointerButton BackButton"
+
+                        5 ->
+                            Just "PointerButton ForwardButton"
+
+                        _ ->
+                            Nothing
+                    , if a.altKey then
+                        Just "AltHeld"
+
+                      else
+                        Nothing
+                    , if a.shiftKey then
+                        Just "ShiftHeld"
+
+                      else
+                        Nothing
+                    , if a.ctrlKey then
+                        Just "CtrlHeld"
+
+                      else
+                        Nothing
+                    , if a.metaKey then
+                        Just "MetaHeld"
+
+                      else
+                        Nothing
+                    ]
+    in
+    "    |> "
+        ++ client
+        ++ "."
+        ++ funcName
+        ++ " "
+        ++ String.fromInt delay
+        ++ " "
+        ++ targetIdFunc a.targetId
+        ++ " ("
+        ++ String.fromFloat a.offsetX
+        ++ ","
+        ++ String.fromFloat a.offsetY
+        ++ ") [ "
+        ++ String.join ", " options
+        ++ " ]\n"
+
+
 targetIdFunc : String -> String
 targetIdFunc id =
     "(Dom.id \"" ++ id ++ "\")"
@@ -1494,15 +1669,35 @@ loadedView model =
                             ]
                             (Ui.text "Clear")
                         , Ui.el
-                            [ Ui.Input.button PressedSaveFile
+                            [ Ui.Input.button PressedCommitToFile
                             , Ui.border 1
                             , faintBorderColor
                             , Ui.background (Ui.rgb 240 235 230)
                             , Ui.width Ui.shrink
                             , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
                             , Ui.borderWith { top = 0, left = 1, right = 0, bottom = 0 }
+                            , case model.commitStatus of
+                                NotCommitted ->
+                                    Ui.noAttr
+
+                                CommitSuccess ->
+                                    Ui.noAttr
+
+                                CommitFailed ->
+                                    Ui.Font.color (Ui.rgb 255 0 0)
                             ]
-                            (Ui.text "Save to file")
+                            (Ui.text
+                                (case model.commitStatus of
+                                    NotCommitted ->
+                                        "Commit to file"
+
+                                    CommitSuccess ->
+                                        "Committed!"
+
+                                    CommitFailed ->
+                                        "Commit failed"
+                                )
+                            )
                         ]
                     , eventsView eventsList
                     ]
@@ -1643,7 +1838,7 @@ eventsView : List Event -> Ui.Element FrontendMsg
 eventsView events =
     case events of
         [] ->
-            Ui.el [ Ui.padding 16 ] (Ui.text "No events have arrived")
+            Ui.el [ Ui.padding 16, Ui.width Ui.shrink ] (Ui.text "No events have arrived")
 
         _ ->
             List.indexedMap
@@ -1676,16 +1871,16 @@ eventsView events =
                                     "Click link " ++ linkEvent.path
 
                                 Paste pasteEvent ->
-                                    "Pasted text " ++ ellipsis pasteEvent.text
+                                    "Pasted text " ++ pasteEvent.text
 
                                 Input inputEvent ->
-                                    "Text input " ++ ellipsis inputEvent.text
+                                    "Text input " ++ inputEvent.text
 
                                 ResetBackend ->
                                     "Test ended"
 
                                 FromJsPort fromJsPortEvent ->
-                                    "Port " ++ fromJsPortEvent.port_ ++ " " ++ ellipsis fromJsPortEvent.data
+                                    "Port " ++ fromJsPortEvent.port_ ++ " " ++ fromJsPortEvent.data
 
                                 HttpLocal { filepath } ->
                                     "Loaded " ++ filepath
@@ -1731,6 +1926,27 @@ eventsView events =
 
                                 CheckView _ ->
                                     "Check view"
+
+                                MouseDown _ ->
+                                    "Mouse down"
+
+                                MouseUp _ ->
+                                    "Mouse up"
+
+                                MouseMove _ ->
+                                    "Mouse move"
+
+                                MouseLeave _ ->
+                                    "Mouse leave"
+
+                                MouseOver _ ->
+                                    "Mouse over"
+
+                                MouseEnter _ ->
+                                    "Mouse enter"
+
+                                MouseOut _ ->
+                                    "Mouse out"
                     in
                     Ui.row
                         [ Ui.Input.button PressedEvent
@@ -1745,6 +1961,7 @@ eventsView events =
                                 Ui.rgb 0 0 0
                             )
                         , Ui.htmlAttribute (Html.Attributes.title text)
+                        , Ui.paddingXY 4 0
                         ]
                         [ if event.isHidden then
                             Icons.eyeClosed
@@ -1758,16 +1975,8 @@ eventsView events =
                 |> Ui.column
                     [ Ui.Font.size 14
                     , Ui.paddingXY 8 0
-                    , Ui.clipWithEllipsis
                     , Ui.paddingWith { left = 0, right = 0, top = 4, bottom = 8 }
+                    , Ui.clipWithEllipsis
+                    , Ui.width (Ui.px 320)
                     ]
                 |> Ui.el [ Ui.id eventsListContainer, Ui.scrollable, Ui.height Ui.fill, Ui.width Ui.shrink ]
-
-
-ellipsis : String -> String
-ellipsis text =
-    if String.length text < 10 then
-        text
-
-    else
-        String.left 7 text ++ "..."
