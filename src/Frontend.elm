@@ -381,11 +381,24 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
         fromListIndices : List Int
         fromListIndices =
             String.indexes "|> Dict.fromList" code
+
+        testsEndIndex =
+            case List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code) of
+                Just index ->
+                    Just index
+
+                Nothing ->
+                    case List.Extra.find (\index -> index > testsStart) (String.indexes "\n    []" code) of
+                        Just index ->
+                            index + String.length "\n    [" |> Just
+
+                        Nothing ->
+                            Nothing
     in
     case
         ( List.Extra.find (\index -> index > httpRequestsStart) fromListIndices
         , List.Extra.find (\index -> index > portRequestsStart) fromListIndices
-        , List.Extra.find (\index -> index > testsStart) (String.indexes "\n    ]" code)
+        , testsEndIndex
         )
     of
         ( Just httpRequestsEnd, Just portRequestsEnd, Just testsEnd ) ->
