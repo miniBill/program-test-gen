@@ -10,7 +10,7 @@ code sessionName endpoint =
     var dataPath = "/tests/data/";
     var startTime = Date.now();
     var alreadyConnected = false;
-    var httpEndpoint = \"""" ++ endpoint ++ """/_r/event";
+    var httpEndpoint = "https://""" ++ endpoint ++ """/_r/event";
 
     var orig_XMLHttpRequest = window.XMLHttpRequest;
     var orig_open = window.XMLHttpRequest.prototype.open;
