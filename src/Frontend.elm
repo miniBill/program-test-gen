@@ -10,14 +10,18 @@ import Elm.Parser
 import Elm.Syntax.Declaration exposing (Declaration(..))
 import Elm.Syntax.Expression exposing (Expression(..))
 import Elm.Syntax.Node as Node exposing (Node(..))
+import Env
+import File.Download
 import Html
 import Html.Attributes
 import Icons
+import JsCode
 import Json.Decode
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import Maybe.Extra
 import Random
+import SessionName
 import Sha256
 import Task
 import Types exposing (..)
@@ -77,24 +81,24 @@ init url key =
         Just sessionName ->
             ( LoadingSession
                 { key = key
-                , sessionName = SessionName sessionName
+                , sessionName = SessionName.fromString sessionName
                 }
             , Cmd.batch
                 [ get_file_api_not_supported ()
                 , set_overscroll False
-                , Lamdera.sendToBackend (LoadSessionRequest (SessionName sessionName))
+                , Lamdera.sendToBackend (LoadSessionRequest (SessionName.fromString sessionName))
                 ]
             )
 
         Nothing ->
-            ( LoadingSession { key = key, sessionName = SessionName "" }
+            ( LoadingSession { key = key, sessionName = SessionName.fromString "" }
             , Cmd.batch
                 [ get_file_api_not_supported ()
                 , set_overscroll False
                 , Random.generate
                     GotRandomSessionName
                     (Random.map
-                        (\int -> String.fromInt int |> Sha256.sha224 |> String.left 16 |> SessionName)
+                        (\int -> String.fromInt int |> Sha256.sha224 |> String.left 16 |> SessionName.fromString)
                         (Random.int Random.minInt Random.maxInt)
                     )
                 ]
@@ -110,7 +114,7 @@ update msg model =
                     ( LoadingSession { loading | sessionName = sessionName }
                     , Cmd.batch
                         [ Lamdera.sendToBackend (LoadSessionRequest sessionName)
-                        , Browser.Navigation.replaceUrl loading.key ("/" ++ sessionNameToString sessionName)
+                        , Browser.Navigation.replaceUrl loading.key ("/" ++ SessionName.toString sessionName)
                         ]
                     )
 
@@ -123,11 +127,6 @@ update msg model =
                     updateLoaded msg loaded
             in
             ( LoadedSession newLoaded, cmd )
-
-
-sessionNameToString : SessionName -> String
-sessionNameToString (SessionName sessionName) =
-    sessionName
 
 
 setEventVisibility : Int -> Bool -> LoadedData -> ( LoadedData, Cmd frontendMsg )
@@ -198,7 +197,7 @@ updateLoaded msg model =
                                 { settings | showAllCode = True }
                                 (Array.toList model.history |> List.filter (\event -> not event.isHidden))
                     in
-                    ( { model | lastWrite = text }, write_file_to_js text )
+                    ( { model | commitStatus = Committing text }, write_file_to_js text )
 
                 _ ->
                     ( model, Cmd.none )
@@ -249,23 +248,31 @@ updateLoaded msg model =
             updateSettings (\settings -> { settings | showAllCode = bool }) model
 
         WroteToFile isSuccessful ->
-            if isSuccessful then
-                ( { model
-                    | history = Array.empty
-                    , commitStatus = CommitSuccess
-                    , parsedCode =
-                        case parseCode model.lastWrite of
-                            Ok ok ->
-                                ParseSuccess ok
+            case model.commitStatus of
+                Committing text ->
+                    if isSuccessful then
+                        ( { model
+                            | history = Array.empty
+                            , commitStatus = CommitSuccess
+                            , parsedCode =
+                                case parseCode text of
+                                    Ok ok ->
+                                        ParseSuccess ok
 
-                            Err _ ->
-                                model.parsedCode
-                  }
-                , Lamdera.sendToBackend ResetSessionRequest
-                )
+                                    Err _ ->
+                                        model.parsedCode
+                          }
+                        , Lamdera.sendToBackend ResetSessionRequest
+                        )
 
-            else
-                ( { model | commitStatus = CommitFailed }, Cmd.none )
+                    else
+                        ( { model | commitStatus = CommitFailed }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        PressedDownloadTestGen ->
+            ( model, File.Download.string "test-gen.js" "" (JsCode.code (SessionName.toString model.sessionName) Env.domain) )
 
 
 updateSettings : (Settings -> Settings) -> LoadedData -> ( LoadedData, Cmd frontendMsg )
@@ -374,7 +381,7 @@ updateFromBackend msg model =
                         , mouseDownOnEvent = False
                         , parsedCode = WaitingOnUser
                         , commitStatus = NotCommitted
-                        , lastWrite = ""
+                        , noEventsHaveArrived = Array.isEmpty events.history
                         }
                     , Cmd.none
                     )
@@ -385,7 +392,8 @@ updateFromBackend msg model =
         SessionUpdate event ->
             case model of
                 LoadedSession loaded ->
-                    ( addEvent event { loaded | commitStatus = NotCommitted } |> LoadedSession
+                    ( addEvent event { loaded | commitStatus = NotCommitted, noEventsHaveArrived = False }
+                        |> LoadedSession
                     , Browser.Dom.setViewportOf eventsListContainer 0 99999
                         |> Task.attempt (\_ -> ScrolledToBottom)
                     )
@@ -729,6 +737,8 @@ type EventType2
     | MouseOver2 ClientId MillisecondWaitBefore MouseEvent
     | MouseEnter2 ClientId MillisecondWaitBefore MouseEvent
     | MouseOut2 ClientId MillisecondWaitBefore MouseEvent
+    | Focus2 ClientId MillisecondWaitBefore FocusEvent
+    | Blur2 ClientId MillisecondWaitBefore BlurEvent
 
 
 eventsToEvent2 : Int -> List Event -> List EventType2
@@ -916,6 +926,16 @@ eventsToEvent2 startTime events =
 
                 MouseOut a ->
                     { previousEvent = Just { eventType = MouseOut2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                Focus a ->
+                    { previousEvent = Just { eventType = Focus2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                Blur a ->
+                    { previousEvent = Just { eventType = Blur2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
@@ -1381,6 +1401,36 @@ testCode settings startTime testIndex events =
                     , indentation = indentation
                     , clientCount = clientCount
                     }
+
+                Focus2 clientId delay a ->
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".focus "
+                            ++ String.fromInt delay
+                            ++ " "
+                            ++ targetIdFunc a.targetId
+                            ++ "\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
+
+                Blur2 clientId delay a ->
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".blur "
+                            ++ String.fromInt delay
+                            ++ " "
+                            ++ targetIdFunc a.targetId
+                            ++ "\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
         )
         { code =
             " T.start \"test"
@@ -1624,6 +1674,20 @@ faintBorderColor =
     Ui.borderColor (Ui.rgb 160 150 140)
 
 
+inlineCode : String -> Ui.Element msg
+inlineCode text =
+    Ui.el
+        [ Ui.border 1
+        , Ui.rounded 4
+        , Ui.paddingXY 4 1
+        , Ui.borderColor (Ui.rgb 160 160 160)
+        , Ui.background (Ui.rgb 250 248 245)
+        , Ui.Font.color (Ui.rgb 47 23 3)
+        , Ui.Font.exactWhitespace
+        ]
+        (Ui.text text)
+
+
 loadedView : LoadedData -> Ui.Element FrontendMsg
 loadedView model =
     case model.parsedCode of
@@ -1638,6 +1702,7 @@ loadedView model =
                     , Ui.padding 8
                     , Ui.Font.size 20
                     , Ui.rounded 8
+                    , Ui.contentCenterX
                     ]
                     (Ui.text "New end-to-end test module")
                 , Ui.el
@@ -1648,8 +1713,9 @@ loadedView model =
                     , Ui.padding 8
                     , Ui.Font.size 20
                     , Ui.rounded 8
+                    , Ui.contentCenterX
                     ]
-                    (Ui.text "Open end-to-end test module")
+                    (Ui.text "Open existing end-to-end test module")
                 ]
 
         ParseSuccess parsed ->
@@ -1689,14 +1755,11 @@ loadedView model =
                             , Ui.paddingWith { left = 8, right = 8, top = 10, bottom = 6 }
                             , Ui.borderWith { top = 0, left = 1, right = 0, bottom = 0 }
                             , case model.commitStatus of
-                                NotCommitted ->
-                                    Ui.noAttr
-
-                                CommitSuccess ->
-                                    Ui.noAttr
-
                                 CommitFailed ->
                                     Ui.Font.color (Ui.rgb 255 0 0)
+
+                                _ ->
+                                    Ui.noAttr
                             ]
                             (Ui.text
                                 (case model.commitStatus of
@@ -1708,83 +1771,110 @@ loadedView model =
 
                                     CommitFailed ->
                                         "Commit failed"
+
+                                    Committing _ ->
+                                        "Committing..."
                                 )
                             )
                         ]
                     , eventsView eventsList
                     ]
-                , Ui.column
-                    [ Ui.height Ui.fill, Ui.spacing 0 ]
-                    ([ Ui.column
-                        [ Ui.spacing 8, Ui.padding 8 ]
-                        [ Ui.Prose.paragraph
-                            [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
-                            [ Ui.text "Press "
-                            , Ui.el
-                                [ Ui.Font.color (Ui.rgb 238 238 238)
-                                , Ui.background (Ui.rgb 41 51 53)
-                                , Ui.Font.size 14
-                                , Ui.contentCenterY
-                                , Ui.padding 4
-                                ]
-                                (Ui.text "Reset\u{00A0}Backend")
-                            , Ui.text " in lamdera live to start a new test"
+                , if model.noEventsHaveArrived then
+                    Ui.Prose.paragraph
+                        [ Ui.widthMax 1000, Ui.padding 16, Ui.Font.size 20, Ui.htmlAttribute (Html.Attributes.style "white-space" "pre-wrap") ]
+                        [ Ui.text "In order to record events from your app, "
+                        , Ui.el
+                            [ Ui.Input.button PressedDownloadTestGen
+                            , Ui.Font.underline
+                            , Ui.Font.color (Ui.rgb 10 80 255)
                             ]
-                        , Ui.column
-                            []
-                            [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.settings.includeClientPos
-                            , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.settings.includePagePos
-                            , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.settings.includeScreenPos
-                            , simpleCheckbox ToggledShowAllCode "Show all generated code" model.settings.showAllCode
-                            ]
+                            (Ui.text "download this file")
+                        , Ui.text " and place it in "
+                        , inlineCode "<root folder>/elm-pkg-js/"
+                        , Ui.text ".\n\nThen run "
+                        , inlineCode "EXPERIMENTAL=1 lamdera live"
+                        , Ui.text " (Mac/Linux terminal) or "
+                        , inlineCode "set \"EXPERIMENTAL=1\" & lamdera live"
+                        , Ui.text " (Windows cmd) for it to take effect.\n\nIt's recommended that you add "
+                        , inlineCode "/elm-pkg-js/test-gen.js"
+                        , Ui.text " to your "
+                        , inlineCode ".gitignore"
+                        , Ui.text " file to avoid accidentally deploying this code to production."
                         ]
-                     , codegen parsed model.settings (List.filter (\event -> not event.isHidden) eventsList)
-                        |> Ui.text
-                        |> Ui.el
-                            [ Ui.Font.family [ Ui.Font.monospace ]
-                            , Ui.Font.size 12
-                            , Ui.Font.exactWhitespace
-                            , Ui.scrollable
-                            , Ui.padding 8
-                            , Ui.borderWith { top = 1, left = 0, right = 0, bottom = 0 }
-                            , faintBorderColor
+
+                  else
+                    Ui.column
+                        [ Ui.height Ui.fill, Ui.spacing 0 ]
+                        ([ Ui.column
+                            [ Ui.spacing 8, Ui.padding 8 ]
+                            [ Ui.Prose.paragraph
+                                [ Ui.Font.size 16, Ui.width Ui.shrink, Ui.spacing 4 ]
+                                [ Ui.text "Press "
+                                , Ui.el
+                                    [ Ui.Font.color (Ui.rgb 238 238 238)
+                                    , Ui.background (Ui.rgb 41 51 53)
+                                    , Ui.Font.size 14
+                                    , Ui.contentCenterY
+                                    , Ui.padding 4
+                                    ]
+                                    (Ui.text "Reset\u{00A0}Backend")
+                                , Ui.text " in lamdera live to start a new test"
+                                ]
+                            , Ui.column
+                                []
+                                [ simpleCheckbox ToggledIncludeClientPos "Include clientPos in pointer events" model.settings.includeClientPos
+                                , simpleCheckbox ToggledIncludePagePos "Include pagePos in pointer events" model.settings.includePagePos
+                                , simpleCheckbox ToggledIncludeScreenPos "Include screenPos in pointer events" model.settings.includeScreenPos
+                                , simpleCheckbox ToggledShowAllCode "Show all generated code" model.settings.showAllCode
+                                ]
                             ]
-                     ]
-                     --(case model.parsedCode of
-                     --    ParseSuccess _ ->
-                     --        [ Ui.el
-                     --            [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
-                     --            , Ui.borderColor (Ui.rgb 100 100 100)
-                     --            , Ui.inFront
-                     --                (Ui.row
-                     --                    [ Ui.Input.button PressedCopyCode
-                     --                    , Ui.border 1
-                     --                    , Ui.borderColor (Ui.rgb 100 100 100)
-                     --                    , Ui.background (Ui.rgb 240 240 240)
-                     --                    , Ui.width Ui.shrink
-                     --                    , Ui.padding 4
-                     --                    , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
-                     --                    , Ui.alignRight
-                     --                    , Ui.move { x = 0, y = -1, z = 0 }
-                     --                    , Ui.Font.size 14
-                     --                    , Ui.spacing 4
-                     --                    ]
-                     --                    [ Icons.copy
-                     --                    , if model.copyCounter > 0 then
-                     --                        Ui.text "Copied!"
-                     --
-                     --                      else
-                     --                        Ui.text "Copy to clipboard"
-                     --                    ]
-                     --                )
-                     --            ]
-                     --            Ui.none
-                     --        ]
-                     --
-                     --    _ ->
-                     --        []
-                     --)
-                    )
+                         , codegen parsed model.settings (List.filter (\event -> not event.isHidden) eventsList)
+                            |> Ui.text
+                            |> Ui.el
+                                [ Ui.Font.family [ Ui.Font.monospace ]
+                                , Ui.Font.size 12
+                                , Ui.Font.exactWhitespace
+                                , Ui.scrollable
+                                , Ui.padding 8
+                                , Ui.borderWith { top = 1, left = 0, right = 0, bottom = 0 }
+                                , faintBorderColor
+                                ]
+                         ]
+                         --(case model.parsedCode of
+                         --    ParseSuccess _ ->
+                         --        [ Ui.el
+                         --            [ Ui.borderWith { left = 0, top = 1, bottom = 0, right = 0 }
+                         --            , Ui.borderColor (Ui.rgb 100 100 100)
+                         --            , Ui.inFront
+                         --                (Ui.row
+                         --                    [ Ui.Input.button PressedCopyCode
+                         --                    , Ui.border 1
+                         --                    , Ui.borderColor (Ui.rgb 100 100 100)
+                         --                    , Ui.background (Ui.rgb 240 240 240)
+                         --                    , Ui.width Ui.shrink
+                         --                    , Ui.padding 4
+                         --                    , Ui.roundedWith { topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 4 }
+                         --                    , Ui.alignRight
+                         --                    , Ui.move { x = 0, y = -1, z = 0 }
+                         --                    , Ui.Font.size 14
+                         --                    , Ui.spacing 4
+                         --                    ]
+                         --                    [ Icons.copy
+                         --                    , if model.copyCounter > 0 then
+                         --                        Ui.text "Copied!"
+                         --
+                         --                      else
+                         --                        Ui.text "Copy to clipboard"
+                         --                    ]
+                         --                )
+                         --            ]
+                         --            Ui.none
+                         --        ]
+                         --
+                         --    _ ->
+                         --        []
+                         --)
+                        )
                 ]
 
         ParseFailed error ->
@@ -1959,6 +2049,12 @@ eventsView events =
 
                                 MouseOut _ ->
                                     "Mouse out"
+
+                                Focus _ ->
+                                    "Focus"
+
+                                Blur _ ->
+                                    "Blur"
                     in
                     Ui.row
                         [ Ui.Input.button PressedEvent

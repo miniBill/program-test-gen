@@ -6,6 +6,7 @@ import AssocSet
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Lamdera exposing (ClientId, SessionId)
+import SessionName exposing (SessionName)
 import Set exposing (Set)
 import Ui.Anim
 import Url exposing (Url)
@@ -30,12 +31,13 @@ type alias LoadedData =
     , parsedCode : ParsedCodeStatus
     , mouseDownOnEvent : Bool
     , commitStatus : CommitStatus
-    , lastWrite : String
+    , noEventsHaveArrived : Bool
     }
 
 
 type CommitStatus
     = NotCommitted
+    | Committing String
     | CommitSuccess
     | CommitFailed
 
@@ -94,10 +96,6 @@ type alias Session =
     }
 
 
-type SessionName
-    = SessionName String
-
-
 type FrontendMsg
     = UrlClicked UrlRequest
     | UrlChanged Url
@@ -119,6 +117,7 @@ type FrontendMsg
     | FileApiNotSupportedFromPort
     | ToggledShowAllCode Bool
     | WroteToFile Bool
+    | PressedDownloadTestGen
 
 
 type ToBackend
@@ -179,6 +178,16 @@ type EventType
     | MouseOver MouseEvent
     | MouseEnter MouseEvent
     | MouseOut MouseEvent
+    | Focus FocusEvent
+    | Blur BlurEvent
+
+
+type alias FocusEvent =
+    { targetId : String }
+
+
+type alias BlurEvent =
+    { targetId : String }
 
 
 type alias CheckViewEvent =

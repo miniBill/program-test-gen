@@ -7,6 +7,7 @@ import AssocSet
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import RPC
+import SessionName exposing (SessionName)
 import Types exposing (..)
 
 

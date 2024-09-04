@@ -9,8 +9,8 @@ import Json.Decode
 import Json.Encode
 import Lamdera
 import LamderaRPC exposing (HttpBody(..))
-import Set
-import Types exposing (BackendModel, BackendMsg(..), Event, SessionName(..), ToFrontend(..))
+import SessionName exposing (SessionName)
+import Types exposing (BackendModel, BackendMsg(..), Event, ToFrontend(..))
 
 
 type alias EventEndpoint =
@@ -23,13 +23,8 @@ eventEndpointCodec : Codec EventEndpoint
 eventEndpointCodec =
     Codec.object EventEndpoint
         |> Codec.field "event" .event eventCodec
-        |> Codec.field "sessionName" .sessionName sessionNameCodec
+        |> Codec.field "sessionName" .sessionName SessionName.codec
         |> Codec.buildObject
-
-
-sessionNameCodec : Codec SessionName
-sessionNameCodec =
-    Codec.map SessionName (\(SessionName a) -> a) Codec.string
 
 
 eventCodec : Codec Event
@@ -44,7 +39,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder checkViewEncoder mouseDownEncoder mouseUpEncoder mouseMoveEncoder mouseLeaveEncoder mouseOverEncoder mouseEnterEncoder mouseOutEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder checkViewEncoder mouseDownEncoder mouseUpEncoder mouseMoveEncoder mouseLeaveEncoder mouseOverEncoder mouseEnterEncoder mouseOutEncoder focusEncoder blurEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -141,6 +136,12 @@ eventTypeCodec =
 
                 Types.MouseOut arg0 ->
                     mouseOutEncoder arg0
+
+                Types.Focus arg0 ->
+                    focusEncoder arg0
+
+                Types.Blur arg0 ->
+                    blurEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -174,7 +175,19 @@ eventTypeCodec =
         |> Codec.variant1 "MouseOver" Types.MouseOver mouseEventCodec
         |> Codec.variant1 "MouseEnter" Types.MouseEnter mouseEventCodec
         |> Codec.variant1 "MouseOut" Types.MouseOut mouseEventCodec
+        |> Codec.variant1 "Focus" Types.Focus focusEventCodec
+        |> Codec.variant1 "Blur" Types.Blur blurEventCodec
         |> Codec.buildCustom
+
+
+focusEventCodec : Codec Types.FocusEvent
+focusEventCodec =
+    Codec.object Types.FocusEvent |> Codec.field "targetId" .targetId Codec.string |> Codec.buildObject
+
+
+blurEventCodec : Codec Types.BlurEvent
+blurEventCodec =
+    Codec.object Types.BlurEvent |> Codec.field "targetId" .targetId Codec.string |> Codec.buildObject
 
 
 mouseEventCodec : Codec Types.MouseEvent
