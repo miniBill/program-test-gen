@@ -98,6 +98,33 @@ code sessionName endpoint =
                 , event.timeStamp);
         }
 
+        function sendWheelEvent(event, id) {
+            sendHelper2(
+                "Wheel",
+                { deltaX : event.deltaX
+                , deltaY : event.deltaY
+                , deltaZ : event.deltaZ
+                , deltaMode : event.deltaMode
+                , mouseEvent :
+                    { targetId : id
+                    , ctrlKey : event.ctrlKey
+                    , metaKey : event.metaKey
+                    , shiftKey : event.shiftKey
+                    , altKey : event.altKey
+                    , clientX : event.clientX
+                    , clientY : event.clientY
+                    , offsetX : event.offsetX
+                    , offsetY : event.offsetY
+                    , pageX : event.pageX
+                    , pageY : event.pageY
+                    , screenX : event.screenX
+                    , screenY : event.screenY
+                    , button : event.button
+                    }
+                }
+                , event.timeStamp);
+        }
+
         function sendTouchEvent(name, event, id) {
             function helper(array)
             {
@@ -140,6 +167,13 @@ code sessionName endpoint =
                     newCallback = (event) => {
                         switch (type)
                         {
+                            case "wheel":
+                            {
+                                if (this.id) {
+                                    sendWheelEvent(event, this.id);
+                                }
+                                break;
+                            }
                             case "input":
                             {
                                 if (this.id) {

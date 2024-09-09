@@ -739,6 +739,7 @@ type EventType2
     | MouseOut2 ClientId MillisecondWaitBefore MouseEvent
     | Focus2 ClientId MillisecondWaitBefore FocusEvent
     | Blur2 ClientId MillisecondWaitBefore BlurEvent
+    | Wheel2 ClientId MillisecondWaitBefore WheelEvent
 
 
 eventsToEvent2 : Int -> List Event -> List EventType2
@@ -936,6 +937,11 @@ eventsToEvent2 startTime events =
 
                 Blur a ->
                     { previousEvent = Just { eventType = Blur2 clientId delay a, time = timestamp }
+                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
+                    }
+
+                Wheel a ->
+                    { previousEvent = Just { eventType = Wheel2 clientId delay a, time = timestamp }
                     , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
                     }
         )
@@ -1226,7 +1232,7 @@ testCode settings startTime testIndex events =
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
-                            ++ ".clickButton "
+                            ++ ".click "
                             ++ String.fromInt delay
                             ++ " "
                             ++ targetIdFunc mouseEvent.targetId
@@ -1256,7 +1262,7 @@ testCode settings startTime testIndex events =
                             ++ indent
                             ++ "    |> "
                             ++ client clientId
-                            ++ ".inputText "
+                            ++ ".input "
                             ++ String.fromInt delay
                             ++ " "
                             ++ targetIdFunc targetId
@@ -1431,6 +1437,58 @@ testCode settings startTime testIndex events =
                     , indentation = indentation
                     , clientCount = clientCount
                     }
+
+                Wheel2 clientId delay a ->
+                    let
+                        modifiers =
+                            List.filterMap
+                                (\( name, value, default ) ->
+                                    if value == default then
+                                        Nothing
+
+                                    else
+                                        Just (name ++ " " ++ value)
+                                )
+                                [ ( "DeltaX", String.fromFloat a.deltaX, "0" )
+                                , ( "DeltaZ", String.fromFloat a.deltaZ, "0" )
+                                , ( "DeltaMode"
+                                  , case a.deltaMode of
+                                        1 ->
+                                            "DeltaLine"
+
+                                        2 ->
+                                            "DeltaPage"
+
+                                        _ ->
+                                            "DeltaPixel"
+                                  , "DeltaPixel"
+                                  )
+                                ]
+                                |> String.join ", "
+                    in
+                    { code =
+                        code
+                            ++ indent
+                            ++ "    |> "
+                            ++ client clientId
+                            ++ ".wheel "
+                            ++ String.fromInt delay
+                            ++ " "
+                            ++ targetIdFunc a.mouseEvent.targetId
+                            ++ " "
+                            ++ String.fromFloat a.deltaY
+                            ++ " ("
+                            ++ String.fromFloat a.mouseEvent.offsetX
+                            ++ ","
+                            ++ String.fromFloat a.mouseEvent.offsetY
+                            ++ ") [ "
+                            ++ modifiers
+                            ++ " ] "
+                            ++ mouseEventModifiers settings a.mouseEvent
+                            ++ "\n"
+                    , indentation = indentation
+                    , clientCount = clientCount
+                    }
         )
         { code =
             " T.start \"test"
@@ -1569,64 +1627,7 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
 
 
 mouseCodegen : MillisecondWaitBefore -> Settings -> String -> String -> MouseEvent -> String
-mouseCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcName client a =
-    let
-        options : List String
-        options =
-            List.filterMap
-                (\( name, include, ( x, y ) ) ->
-                    if (x == a.offsetX && y == a.offsetY) || not include then
-                        Nothing
-
-                    else
-                        Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
-                )
-                [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
-                , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
-                , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
-                ]
-                ++ List.filterMap
-                    identity
-                    [ case a.button of
-                        1 ->
-                            Just "PointerButton MainButton"
-
-                        2 ->
-                            Just "PointerButton MiddleButton"
-
-                        3 ->
-                            Just "PointerButton SecondButton"
-
-                        4 ->
-                            Just "PointerButton BackButton"
-
-                        5 ->
-                            Just "PointerButton ForwardButton"
-
-                        _ ->
-                            Nothing
-                    , if a.altKey then
-                        Just "AltHeld"
-
-                      else
-                        Nothing
-                    , if a.shiftKey then
-                        Just "ShiftHeld"
-
-                      else
-                        Nothing
-                    , if a.ctrlKey then
-                        Just "CtrlHeld"
-
-                      else
-                        Nothing
-                    , if a.metaKey then
-                        Just "MetaHeld"
-
-                      else
-                        Nothing
-                    ]
-    in
+mouseCodegen delay settings funcName client a =
     "    |> "
         ++ client
         ++ "."
@@ -1639,9 +1640,68 @@ mouseCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcNa
         ++ String.fromFloat a.offsetX
         ++ ","
         ++ String.fromFloat a.offsetY
-        ++ ") [ "
-        ++ String.join ", " options
-        ++ " ]\n"
+        ++ ") "
+        ++ mouseEventModifiers settings a
+        ++ "\n"
+
+
+mouseEventModifiers : Settings -> MouseEvent -> String
+mouseEventModifiers { includeClientPos, includePagePos, includeScreenPos } a =
+    List.filterMap
+        (\( name, include, ( x, y ) ) ->
+            if (x == a.offsetX && y == a.offsetY) || not include then
+                Nothing
+
+            else
+                Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+        )
+        [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
+        , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
+        , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
+        ]
+        ++ List.filterMap
+            identity
+            [ case a.button of
+                1 ->
+                    Just "PointerButton MainButton"
+
+                2 ->
+                    Just "PointerButton MiddleButton"
+
+                3 ->
+                    Just "PointerButton SecondButton"
+
+                4 ->
+                    Just "PointerButton BackButton"
+
+                5 ->
+                    Just "PointerButton ForwardButton"
+
+                _ ->
+                    Nothing
+            , if a.altKey then
+                Just "AltHeld"
+
+              else
+                Nothing
+            , if a.shiftKey then
+                Just "ShiftHeld"
+
+              else
+                Nothing
+            , if a.ctrlKey then
+                Just "CtrlHeld"
+
+              else
+                Nothing
+            , if a.metaKey then
+                Just "MetaHeld"
+
+              else
+                Nothing
+            ]
+        |> String.join ", "
+        |> (\b -> "[ " ++ b ++ " ]")
 
 
 targetIdFunc : String -> String
@@ -2055,6 +2115,9 @@ eventsView events =
 
                                 Blur _ ->
                                     "Blur"
+
+                                Wheel _ ->
+                                    "Mouse wheel scrolled"
                     in
                     Ui.row
                         [ Ui.Input.button PressedEvent

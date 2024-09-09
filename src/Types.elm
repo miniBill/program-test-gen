@@ -180,6 +180,7 @@ type EventType
     | MouseOut MouseEvent
     | Focus FocusEvent
     | Blur BlurEvent
+    | Wheel WheelEvent
 
 
 type alias FocusEvent =
@@ -236,6 +237,15 @@ type alias MouseEvent =
     , screenX : Float
     , screenY : Float
     , button : Int
+    }
+
+
+type alias WheelEvent =
+    { deltaX : Float
+    , deltaY : Float
+    , deltaZ : Float
+    , deltaMode : Int
+    , mouseEvent : MouseEvent
     }
 
 
