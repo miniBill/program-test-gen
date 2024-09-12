@@ -39,7 +39,7 @@ eventCodec =
 eventTypeCodec : Codec Types.EventType
 eventTypeCodec =
     Codec.custom
-        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder checkViewEncoder mouseDownEncoder mouseUpEncoder mouseMoveEncoder mouseLeaveEncoder mouseOverEncoder mouseEnterEncoder mouseOutEncoder focusEncoder blurEncoder value ->
+        (\keyDownEncoder keyUpEncoder clickEncoder clickLinkEncoder httpEncoder httpLocalEncoder connectEncoder pasteEncoder inputEncoder resetBackendEncoder fromJsPortEncoder windowResizeEncoder pointerDownEncoder pointerUpEncoder pointerMoveEncoder pointerLeaveEncoder pointerCancelEncoder pointerOverEncoder pointerEnterEncoder pointerOutEncoder touchStartEncoder touchCancelEncoder touchMoveEncoder touchEndEncoder checkViewEncoder mouseDownEncoder mouseUpEncoder mouseMoveEncoder mouseLeaveEncoder mouseOverEncoder mouseEnterEncoder mouseOutEncoder focusEncoder blurEncoder wheelEncoder value ->
             case value of
                 Types.KeyDown arg0 ->
                     keyDownEncoder arg0
@@ -142,6 +142,9 @@ eventTypeCodec =
 
                 Types.Blur arg0 ->
                     blurEncoder arg0
+
+                Types.Wheel arg0 ->
+                    wheelEncoder arg0
         )
         |> Codec.variant1 "KeyDown" Types.KeyDown keyEventCodec
         |> Codec.variant1 "KeyUp" Types.KeyUp keyEventCodec
@@ -177,7 +180,19 @@ eventTypeCodec =
         |> Codec.variant1 "MouseOut" Types.MouseOut mouseEventCodec
         |> Codec.variant1 "Focus" Types.Focus focusEventCodec
         |> Codec.variant1 "Blur" Types.Blur blurEventCodec
+        |> Codec.variant1 "Wheel" Types.Wheel wheelEventCodec
         |> Codec.buildCustom
+
+
+wheelEventCodec : Codec Types.WheelEvent
+wheelEventCodec =
+    Codec.object Types.WheelEvent
+        |> Codec.field "deltaX" .deltaX Codec.float
+        |> Codec.field "deltaY" .deltaY Codec.float
+        |> Codec.field "deltaZ" .deltaZ Codec.float
+        |> Codec.field "deltaMode" .deltaMode Codec.int
+        |> Codec.field "mouseEvent" .mouseEvent mouseEventCodec
+        |> Codec.buildObject
 
 
 focusEventCodec : Codec Types.FocusEvent

@@ -712,7 +712,7 @@ type EventType2
     = Input2 ClientId MillisecondWaitBefore { targetId : String, text : String }
     | Click2 ClientId MillisecondWaitBefore { targetId : String }
     | ClickLink2 ClientId MillisecondWaitBefore LinkEvent
-    | Connect2 ClientId MillisecondWaitBefore ConnectEvent
+    | Connect2 ClientId MillisecondWaitBefore ConnectEvent (List EventType2)
     | KeyUp2 ClientId MillisecondWaitBefore KeyEvent
     | KeyDown2 ClientId MillisecondWaitBefore KeyEvent
     | PointerDown2 ClientId MillisecondWaitBefore PointerEvent
@@ -739,215 +739,18 @@ type EventType2
     | MouseOut2 ClientId MillisecondWaitBefore MouseEvent
     | Focus2 ClientId MillisecondWaitBefore FocusEvent
     | Blur2 ClientId MillisecondWaitBefore BlurEvent
+    | Wheel2 ClientId MillisecondWaitBefore WheelEvent
 
 
-eventsToEvent2 : Int -> List Event -> List EventType2
-eventsToEvent2 startTime events =
-    List.foldl
-        (\{ clientId, eventType, timestamp } state ->
-            let
-                delay : Int
-                delay =
-                    case state.previousEvent of
-                        Just previousEvent ->
-                            timestamp - previousEvent.time
-
-                        Nothing ->
-                            startTime - startTime
-            in
-            case eventType of
-                Input input ->
-                    { previousEvent = Just { eventType = Input2 clientId delay input, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                KeyDown keyDown ->
-                    { previousEvent = Just { eventType = KeyDown2 clientId delay keyDown, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                KeyUp keyUp ->
-                    { previousEvent = Just { eventType = KeyUp2 clientId delay keyUp, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerDown a ->
-                    { previousEvent = Just { eventType = PointerDown2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerUp a ->
-                    { previousEvent = Just { eventType = PointerUp2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerMove a ->
-                    { previousEvent = Just { eventType = PointerMove2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerLeave a ->
-                    { previousEvent = Just { eventType = PointerLeave2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerCancel a ->
-                    { previousEvent = Just { eventType = PointerCancel2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerOver a ->
-                    { previousEvent = Just { eventType = PointerOver2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerEnter a ->
-                    { previousEvent = Just { eventType = PointerEnter2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                PointerOut a ->
-                    { previousEvent = Just { eventType = PointerOut2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                TouchStart a ->
-                    { previousEvent = Just { eventType = TouchStart2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                TouchCancel a ->
-                    { previousEvent = Just { eventType = TouchCancel2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                TouchMove a ->
-                    { previousEvent = Just { eventType = TouchMove2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                TouchEnd a ->
-                    { previousEvent = Just { eventType = TouchEnd2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                Connect connect ->
-                    { previousEvent = Just { eventType = Connect2 clientId delay connect, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                Click mouseEvent ->
-                    case mouseEvent.targetId of
-                        Just targetId ->
-                            { previousEvent = Just { eventType = Click2 clientId delay { targetId = targetId }, time = timestamp }
-                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                            }
-
-                        Nothing ->
-                            state
-
-                ClickLink linkEvent ->
-                    { previousEvent = Just { eventType = ClickLink2 clientId delay linkEvent, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                Http _ ->
-                    state
-
-                HttpLocal _ ->
-                    state
-
-                Paste pasteEvent ->
-                    case pasteEvent.targetId of
-                        Just targetId ->
-                            { previousEvent = Just { eventType = Input2 clientId delay { targetId = targetId, text = pasteEvent.text }, time = timestamp }
-                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                            }
-
-                        Nothing ->
-                            state
-
-                ResetBackend ->
-                    state
-
-                FromJsPort fromJsPort ->
-                    case fromJsPort.triggeredFromPort of
-                        Just _ ->
-                            state
-
-                        Nothing ->
-                            { previousEvent =
-                                { eventType = FromJsPort2 clientId delay { port_ = fromJsPort.port_, data = fromJsPort.data }
-                                , time = timestamp
-                                }
-                                    |> Just
-                            , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                            }
-
-                WindowResize resizeEvent ->
-                    { previousEvent = Just { eventType = WindowResize2 clientId delay resizeEvent, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                CheckView checkView ->
-                    { previousEvent = Just { eventType = CheckView2 clientId delay checkView, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseDown a ->
-                    { previousEvent = Just { eventType = MouseDown2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseUp a ->
-                    { previousEvent = Just { eventType = MouseUp2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseMove a ->
-                    { previousEvent = Just { eventType = MouseMove2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseLeave a ->
-                    { previousEvent = Just { eventType = MouseLeave2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseOver a ->
-                    { previousEvent = Just { eventType = MouseOver2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseEnter a ->
-                    { previousEvent = Just { eventType = MouseEnter2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                MouseOut a ->
-                    { previousEvent = Just { eventType = MouseOut2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                Focus a ->
-                    { previousEvent = Just { eventType = Focus2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-
-                Blur a ->
-                    { previousEvent = Just { eventType = Blur2 clientId delay a, time = timestamp }
-                    , rest = Maybe.Extra.toList state.previousEvent ++ state.rest
-                    }
-        )
-        { previousEvent = Nothing, rest = [] }
-        events
-        |> (\state -> Maybe.Extra.toList state.previousEvent ++ state.rest)
+eventsToEvent2Helper state =
+    Maybe.Extra.toList state.previousEvent
+        ++ state.rest
         |> List.reverse
         |> List.foldl
-            (\event state ->
+            (\event a ->
                 { previousEvent = Just event
                 , list =
-                    case state.previousEvent of
+                    case a.previousEvent of
                         Just { time } ->
                             let
                                 delta : Int
@@ -955,18 +758,332 @@ eventsToEvent2 startTime events =
                                     event.time - time
                             in
                             if delta > 0 then
-                                event.eventType :: state.list
+                                event.eventType :: a.list
 
                             else
-                                event.eventType :: state.list
+                                event.eventType :: a.list
 
                         Nothing ->
-                            event.eventType :: state.list
+                            event.eventType :: a.list
                 }
             )
             { previousEvent = Nothing, list = [] }
         |> .list
         |> List.reverse
+
+
+eventsToEvent2 :
+    { previousEvent : Maybe { eventType : EventType2, time : Int }, rest : List { eventType : EventType2, time : Int } }
+    -> Int
+    -> List Event
+    -> List EventType2
+eventsToEvent2 ({ previousEvent, rest } as state) startTime events =
+    case events of
+        [] ->
+            eventsToEvent2Helper { previousEvent = previousEvent, rest = rest }
+
+        { clientId, eventType, timestamp } :: events2 ->
+            let
+                delay : Int
+                delay =
+                    case previousEvent of
+                        Just { time } ->
+                            timestamp - time
+
+                        Nothing ->
+                            timestamp - startTime
+            in
+            case eventType of
+                Input input ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = Input2 clientId delay input, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                KeyDown keyDown ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = KeyDown2 clientId delay keyDown, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                KeyUp keyUp ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = KeyUp2 clientId delay keyUp, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerDown a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerDown2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerUp a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerUp2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerMove a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerMove2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerLeave a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerLeave2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerCancel a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerCancel2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerOver a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerOver2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerEnter a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerEnter2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                PointerOut a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = PointerOut2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                TouchStart a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = TouchStart2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                TouchCancel a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = TouchCancel2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                TouchMove a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = TouchMove2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                TouchEnd a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = TouchEnd2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                Connect connect ->
+                    { previousEvent =
+                        Just
+                            { eventType =
+                                Connect2
+                                    clientId
+                                    delay
+                                    connect
+                                    (eventsToEvent2 { previousEvent = Nothing, rest = [] } timestamp events2)
+                            , time = timestamp
+                            }
+                    , rest = Maybe.Extra.toList previousEvent ++ rest
+                    }
+                        |> eventsToEvent2Helper
+
+                Click mouseEvent ->
+                    case mouseEvent.targetId of
+                        Just targetId ->
+                            eventsToEvent2
+                                { previousEvent = Just { eventType = Click2 clientId delay { targetId = targetId }, time = timestamp }
+                                , rest = Maybe.Extra.toList previousEvent ++ rest
+                                }
+                                startTime
+                                events2
+
+                        Nothing ->
+                            eventsToEvent2 state startTime events2
+
+                ClickLink linkEvent ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = ClickLink2 clientId delay linkEvent, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                Http _ ->
+                    eventsToEvent2 state startTime events2
+
+                HttpLocal _ ->
+                    eventsToEvent2 state startTime events2
+
+                Paste pasteEvent ->
+                    case pasteEvent.targetId of
+                        Just targetId ->
+                            eventsToEvent2
+                                { previousEvent = Just { eventType = Input2 clientId delay { targetId = targetId, text = pasteEvent.text }, time = timestamp }
+                                , rest = Maybe.Extra.toList previousEvent ++ rest
+                                }
+                                startTime
+                                events2
+
+                        Nothing ->
+                            eventsToEvent2 state startTime events2
+
+                ResetBackend ->
+                    eventsToEvent2 state startTime events2
+
+                FromJsPort fromJsPort ->
+                    case fromJsPort.triggeredFromPort of
+                        Just _ ->
+                            eventsToEvent2 state startTime events2
+
+                        Nothing ->
+                            eventsToEvent2
+                                { previousEvent =
+                                    { eventType = FromJsPort2 clientId delay { port_ = fromJsPort.port_, data = fromJsPort.data }
+                                    , time = timestamp
+                                    }
+                                        |> Just
+                                , rest = Maybe.Extra.toList previousEvent ++ rest
+                                }
+                                startTime
+                                events2
+
+                WindowResize resizeEvent ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = WindowResize2 clientId delay resizeEvent, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                CheckView checkView ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = CheckView2 clientId delay checkView, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseDown a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseDown2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseUp a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseUp2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseMove a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseMove2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseLeave a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseLeave2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseOver a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseOver2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseEnter a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseEnter2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                MouseOut a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = MouseOut2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                Focus a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = Focus2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                Blur a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = Blur2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
+
+                Wheel a ->
+                    eventsToEvent2
+                        { previousEvent = Just { eventType = Wheel2 clientId delay a, time = timestamp }
+                        , rest = Maybe.Extra.toList previousEvent ++ rest
+                        }
+                        startTime
+                        events2
 
 
 dropPrefix : String -> String -> String
@@ -1093,19 +1210,11 @@ codegen parsedCode settings events =
         testsText
 
 
-testCode : Settings -> Int -> Int -> List Event -> String
-testCode settings startTime testIndex events =
-    let
-        clients : List ClientId
-        clients =
-            List.map .clientId events |> List.Extra.unique
-    in
-    List.foldl
-        (\event { code, indentation, clientCount } ->
+eventToString : Int -> Settings -> List ClientId -> Int -> List EventType2 -> List String
+eventToString depth settings clients startTime events =
+    List.map
+        (\event ->
             let
-                indent =
-                    String.repeat indentation "             "
-
                 client clientId =
                     case List.Extra.findIndex (\a -> a == clientId) clients of
                         Just index ->
@@ -1115,335 +1224,264 @@ testCode settings startTime testIndex events =
                             "tab"
             in
             case event of
-                Connect2 clientId delay { url, sessionId, windowWidth, windowHeight } ->
+                Connect2 clientId delay { url, sessionId, windowWidth, windowHeight } events2 ->
                     let
-                        state =
-                            if clientCount == 0 then
-                                "state"
-
-                            else
-                                "state" ++ String.fromInt clientCount
+                        indent =
+                            String.repeat (8 * depth + 12) " "
                     in
-                    { code =
-                        code
-                            ++ (indent ++ "    |> T.connectFrontend\n")
-                            ++ (indent ++ "        " ++ String.fromInt delay ++ "\n")
-                            ++ (indent ++ "        (Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
-                            ++ (indent ++ "        (Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
-                            ++ (indent ++ "        { width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
-                            ++ (indent ++ "        (\\( " ++ state ++ ", " ++ client clientId ++ ") ->\n")
-                            ++ (indent ++ "            " ++ state ++ "\n")
-                    , indentation = indentation + 1
-                    , clientCount = clientCount + 1
-                    }
+                    "T.connectFrontend\n"
+                        ++ (indent ++ String.fromInt delay ++ "\n")
+                        ++ (indent ++ "(Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
+                        ++ (indent ++ "(Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
+                        ++ (indent ++ "{ width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
+                        ++ (indent ++ "(\\" ++ client clientId ++ " ->\n")
+                        ++ indent
+                        ++ "    [ "
+                        ++ String.join
+                            ("\n" ++ indent ++ "    , ")
+                            (eventToString (depth + 1) settings clients startTime events2)
+                        ++ "\n"
+                        ++ indent
+                        ++ "    ]\n"
+                        ++ indent
+                        ++ ")"
 
                 WindowResize2 clientId delay resizeEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".resizeWindow "
-                            ++ String.fromInt delay
-                            ++ " { width = "
-                            ++ String.fromInt resizeEvent.width
-                            ++ ", height = "
-                            ++ String.fromInt resizeEvent.height
-                            ++ " }\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".resizeWindow "
+                        ++ String.fromInt delay
+                        ++ " { width = "
+                        ++ String.fromInt resizeEvent.width
+                        ++ ", height = "
+                        ++ String.fromInt resizeEvent.height
+                        ++ " }"
 
                 KeyDown2 clientId delay keyEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".keyDown "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc keyEvent.targetId
-                            ++ " \""
-                            ++ keyEvent.key
-                            ++ "\" [ "
-                            ++ String.join ", "
-                                (List.filterMap
-                                    (\( name, bool ) ->
-                                        if bool then
-                                            Just name
+                    client clientId
+                        ++ ".keyDown "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc keyEvent.targetId
+                        ++ " \""
+                        ++ keyEvent.key
+                        ++ "\" [ "
+                        ++ String.join ", "
+                            (List.filterMap
+                                (\( name, bool ) ->
+                                    if bool then
+                                        Just name
 
-                                        else
-                                            Nothing
-                                    )
-                                    [ ( "Key_ShiftHeld", keyEvent.shiftKey )
-                                    , ( "Key_AltHeld", keyEvent.altKey )
-                                    , ( "Key_CtrlHeld", keyEvent.ctrlKey )
-                                    , ( "Key_MetaHeld", keyEvent.metaKey )
-                                    ]
+                                    else
+                                        Nothing
                                 )
-                            ++ " ]\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                                [ ( "Key_ShiftHeld", keyEvent.shiftKey )
+                                , ( "Key_AltHeld", keyEvent.altKey )
+                                , ( "Key_CtrlHeld", keyEvent.ctrlKey )
+                                , ( "Key_MetaHeld", keyEvent.metaKey )
+                                ]
+                            )
+                        ++ " ]"
 
                 KeyUp2 clientId delay keyEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".keyUp "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc keyEvent.targetId
-                            ++ " \""
-                            ++ keyEvent.key
-                            ++ "\" [ "
-                            ++ String.join ", "
-                                (List.filterMap
-                                    (\( name, bool ) ->
-                                        if bool then
-                                            Just name
+                    client clientId
+                        ++ ".keyUp "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc keyEvent.targetId
+                        ++ " \""
+                        ++ keyEvent.key
+                        ++ "\" [ "
+                        ++ String.join ", "
+                            (List.filterMap
+                                (\( name, bool ) ->
+                                    if bool then
+                                        Just name
 
-                                        else
-                                            Nothing
-                                    )
-                                    [ ( "Key_ShiftHeld", keyEvent.shiftKey )
-                                    , ( "Key_AltHeld", keyEvent.altKey )
-                                    , ( "Key_CtrlHeld", keyEvent.ctrlKey )
-                                    , ( "Key_MetaHeld", keyEvent.metaKey )
-                                    ]
+                                    else
+                                        Nothing
                                 )
-                            ++ " ]\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                                [ ( "Key_ShiftHeld", keyEvent.shiftKey )
+                                , ( "Key_AltHeld", keyEvent.altKey )
+                                , ( "Key_CtrlHeld", keyEvent.ctrlKey )
+                                , ( "Key_MetaHeld", keyEvent.metaKey )
+                                ]
+                            )
+                        ++ " ]"
 
                 Click2 clientId delay mouseEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".clickButton "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc mouseEvent.targetId
-                            ++ "\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".click "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc mouseEvent.targetId
 
                 ClickLink2 clientId delay mouseEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".clickLink \""
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ mouseEvent.path
-                            ++ "\"\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".clickLink \""
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ mouseEvent.path
+                        ++ "\""
 
                 Input2 clientId delay { targetId, text } ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".inputText "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc targetId
-                            ++ " \""
-                            ++ text
-                            ++ "\"\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".input "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc targetId
+                        ++ " \""
+                        ++ text
+                        ++ "\""
 
                 FromJsPort2 _ _ _ ->
-                    { code = code
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    ""
 
                 PointerDown2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerDown" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerDown" (client clientId) a
 
                 PointerUp2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerUp" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerUp" (client clientId) a
 
                 PointerMove2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerMove" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerMove" (client clientId) a
 
                 PointerLeave2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerLeave" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerLeave" (client clientId) a
 
                 PointerCancel2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerCancel" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerCancel" (client clientId) a
 
                 PointerOver2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerOver" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerOver" (client clientId) a
 
                 PointerEnter2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerEnter" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerEnter" (client clientId) a
 
                 PointerOut2 clientId delay a ->
-                    { code = code ++ indent ++ pointerCodegen delay settings "pointerOut" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    pointerCodegen delay settings "pointerOut" (client clientId) a
 
                 TouchStart2 clientId delay a ->
-                    { code = code ++ indent ++ touchCodegen delay "touchStart" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    touchCodegen delay "touchStart" (client clientId) a
 
                 TouchCancel2 clientId delay a ->
-                    { code = code ++ indent ++ touchCodegen delay "touchCancel" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    touchCodegen delay "touchCancel" (client clientId) a
 
                 TouchMove2 clientId delay a ->
-                    { code = code ++ indent ++ touchCodegen delay "touchMove" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    touchCodegen delay "touchMove" (client clientId) a
 
                 TouchEnd2 clientId delay a ->
-                    { code = code ++ indent ++ touchCodegen delay "touchEnd" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    touchCodegen delay "touchEnd" (client clientId) a
 
                 CheckView2 clientId delay checkViewEvent ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".checkView "
-                            ++ String.fromInt delay
-                            ++ " (Test.Html.Query.has [ "
-                            ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
-                            ++ " ])\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".checkView "
+                        ++ String.fromInt delay
+                        ++ " (Test.Html.Query.has [ "
+                        ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
+                        ++ " ])"
 
                 MouseDown2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseDown" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseDown" (client clientId) a
 
                 MouseUp2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseUp" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseUp" (client clientId) a
 
                 MouseMove2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseMove" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseMove" (client clientId) a
 
                 MouseLeave2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseLeave" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseLeave" (client clientId) a
 
                 MouseOver2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseOver" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseOver" (client clientId) a
 
                 MouseEnter2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseEnter" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseEnter" (client clientId) a
 
                 MouseOut2 clientId delay a ->
-                    { code = code ++ indent ++ mouseCodegen delay settings "mouseOut" (client clientId) a
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    mouseCodegen delay settings "mouseOut" (client clientId) a
 
                 Focus2 clientId delay a ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".focus "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc a.targetId
-                            ++ "\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".focus "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc a.targetId
+                        ++ "\n"
 
                 Blur2 clientId delay a ->
-                    { code =
-                        code
-                            ++ indent
-                            ++ "    |> "
-                            ++ client clientId
-                            ++ ".blur "
-                            ++ String.fromInt delay
-                            ++ " "
-                            ++ targetIdFunc a.targetId
-                            ++ "\n"
-                    , indentation = indentation
-                    , clientCount = clientCount
-                    }
+                    client clientId
+                        ++ ".blur "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc a.targetId
+
+                Wheel2 clientId delay a ->
+                    let
+                        modifiers =
+                            List.filterMap
+                                (\( name, value, default ) ->
+                                    if value == default then
+                                        Nothing
+
+                                    else
+                                        Just (name ++ " " ++ value)
+                                )
+                                [ ( "DeltaX", String.fromFloat a.deltaX, "0" )
+                                , ( "DeltaZ", String.fromFloat a.deltaZ, "0" )
+                                , ( "DeltaMode"
+                                  , case a.deltaMode of
+                                        1 ->
+                                            "DeltaLine"
+
+                                        2 ->
+                                            "DeltaPage"
+
+                                        _ ->
+                                            "DeltaPixel"
+                                  , "DeltaPixel"
+                                  )
+                                ]
+                                |> String.join ", "
+                    in
+                    client clientId
+                        ++ ".wheel "
+                        ++ String.fromInt delay
+                        ++ " "
+                        ++ targetIdFunc a.mouseEvent.targetId
+                        ++ " "
+                        ++ String.fromFloat a.deltaY
+                        ++ " ("
+                        ++ String.fromFloat a.mouseEvent.offsetX
+                        ++ ","
+                        ++ String.fromFloat a.mouseEvent.offsetY
+                        ++ ") [ "
+                        ++ modifiers
+                        ++ " ] "
+                        ++ mouseEventModifiers settings a.mouseEvent
         )
-        { code =
-            " T.start \"test"
-                ++ String.fromInt testIndex
-                ++ "\" (Time.millisToPosix "
-                ++ String.fromInt startTime
-                ++ ") config"
-                ++ "\n"
-        , indentation = 0
-        , clientCount = 0
-        }
-        (eventsToEvent2 startTime events)
-        |> (\{ code, indentation } -> code ++ "        " ++ String.repeat indentation ")")
+        events
+
+
+testCode : Settings -> Int -> Int -> List Event -> String
+testCode settings startTime testIndex events =
+    let
+        clients : List ClientId
+        clients =
+            List.map .clientId events |> List.Extra.unique
+
+        events2 =
+            eventsToEvent2 { previousEvent = Nothing, rest = [] } startTime events
+                |> eventToString 0 settings clients startTime
+    in
+    " T.start\n        \"test"
+        ++ String.fromInt testIndex
+        ++ "\"\n        (Time.millisToPosix "
+        ++ String.fromInt startTime
+        ++ ")\n        config"
+        ++ "\n        [ "
+        ++ String.join "\n        , " events2
+        ++ "\n        ]"
 
 
 touchCodegen : MillisecondWaitBefore -> String -> String -> TouchEvent -> String
@@ -1467,8 +1505,7 @@ touchCodegen delay funcName client a =
                 ++ String.fromFloat touch.pageY
                 ++ ") }"
     in
-    "    |> "
-        ++ client
+    client
         ++ "."
         ++ funcName
         ++ " "
@@ -1479,7 +1516,7 @@ touchCodegen delay funcName client a =
         ++ String.join ", " (List.map touchToString a.targetTouches)
         ++ " ], changedTouches = [ "
         ++ String.join ", " (List.map touchToString a.targetTouches)
-        ++ " ] }\n"
+        ++ " ] }"
 
 
 pointerCodegen : MillisecondWaitBefore -> Settings -> String -> String -> PointerEvent -> String
@@ -1551,8 +1588,7 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
                         Just "IsNotPrimary"
                     ]
     in
-    "    |> "
-        ++ client
+    client
         ++ "."
         ++ funcName
         ++ " "
@@ -1565,70 +1601,12 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
         ++ String.fromFloat a.offsetY
         ++ ") [ "
         ++ String.join ", " options
-        ++ " ]\n"
+        ++ " ]"
 
 
 mouseCodegen : MillisecondWaitBefore -> Settings -> String -> String -> MouseEvent -> String
-mouseCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcName client a =
-    let
-        options : List String
-        options =
-            List.filterMap
-                (\( name, include, ( x, y ) ) ->
-                    if (x == a.offsetX && y == a.offsetY) || not include then
-                        Nothing
-
-                    else
-                        Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
-                )
-                [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
-                , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
-                , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
-                ]
-                ++ List.filterMap
-                    identity
-                    [ case a.button of
-                        1 ->
-                            Just "PointerButton MainButton"
-
-                        2 ->
-                            Just "PointerButton MiddleButton"
-
-                        3 ->
-                            Just "PointerButton SecondButton"
-
-                        4 ->
-                            Just "PointerButton BackButton"
-
-                        5 ->
-                            Just "PointerButton ForwardButton"
-
-                        _ ->
-                            Nothing
-                    , if a.altKey then
-                        Just "AltHeld"
-
-                      else
-                        Nothing
-                    , if a.shiftKey then
-                        Just "ShiftHeld"
-
-                      else
-                        Nothing
-                    , if a.ctrlKey then
-                        Just "CtrlHeld"
-
-                      else
-                        Nothing
-                    , if a.metaKey then
-                        Just "MetaHeld"
-
-                      else
-                        Nothing
-                    ]
-    in
-    "    |> "
-        ++ client
+mouseCodegen delay settings funcName client a =
+    client
         ++ "."
         ++ funcName
         ++ " "
@@ -1639,9 +1617,68 @@ mouseCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcNa
         ++ String.fromFloat a.offsetX
         ++ ","
         ++ String.fromFloat a.offsetY
-        ++ ") [ "
-        ++ String.join ", " options
-        ++ " ]\n"
+        ++ ") "
+        ++ mouseEventModifiers settings a
+        ++ "\n"
+
+
+mouseEventModifiers : Settings -> MouseEvent -> String
+mouseEventModifiers { includeClientPos, includePagePos, includeScreenPos } a =
+    List.filterMap
+        (\( name, include, ( x, y ) ) ->
+            if (x == a.offsetX && y == a.offsetY) || not include then
+                Nothing
+
+            else
+                Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+        )
+        [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
+        , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
+        , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
+        ]
+        ++ List.filterMap
+            identity
+            [ case a.button of
+                1 ->
+                    Just "PointerButton MainButton"
+
+                2 ->
+                    Just "PointerButton MiddleButton"
+
+                3 ->
+                    Just "PointerButton SecondButton"
+
+                4 ->
+                    Just "PointerButton BackButton"
+
+                5 ->
+                    Just "PointerButton ForwardButton"
+
+                _ ->
+                    Nothing
+            , if a.altKey then
+                Just "AltHeld"
+
+              else
+                Nothing
+            , if a.shiftKey then
+                Just "ShiftHeld"
+
+              else
+                Nothing
+            , if a.ctrlKey then
+                Just "CtrlHeld"
+
+              else
+                Nothing
+            , if a.metaKey then
+                Just "MetaHeld"
+
+              else
+                Nothing
+            ]
+        |> String.join ", "
+        |> (\b -> "[ " ++ b ++ " ]")
 
 
 targetIdFunc : String -> String
@@ -2055,6 +2092,9 @@ eventsView events =
 
                                 Blur _ ->
                                     "Blur"
+
+                                Wheel _ ->
+                                    "Mouse wheel scrolled"
                     in
                     Ui.row
                         [ Ui.Input.button PressedEvent
