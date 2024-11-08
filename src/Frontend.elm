@@ -31,7 +31,7 @@ import Ui.Events
 import Ui.Font
 import Ui.Input
 import Ui.Prose
-import Url
+import Url exposing (Url)
 import Url.Parser
 
 
@@ -1210,6 +1210,19 @@ codegen parsedCode settings events =
         testsText
 
 
+urlToStringNoDomain : String -> String
+urlToStringNoDomain url =
+    case String.split "/" url of
+        "http:" :: _ :: rest ->
+            "/" ++ String.join "/" rest
+
+        "https:" :: _ :: rest ->
+            "/" ++ String.join "/" rest
+
+        _ ->
+            url
+
+
 eventToString : Int -> Settings -> List ClientId -> Int -> List EventType2 -> List String
 eventToString depth settings clients startTime events =
     List.map
@@ -1232,7 +1245,7 @@ eventToString depth settings clients startTime events =
                     "T.connectFrontend\n"
                         ++ (indent ++ String.fromInt delay ++ "\n")
                         ++ (indent ++ "(Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
-                        ++ (indent ++ "(Url.fromString \"" ++ url ++ "\" |> Maybe.withDefault domain)\n")
+                        ++ (indent ++ urlToStringNoDomain url ++ "\n")
                         ++ (indent ++ "{ width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
                         ++ (indent ++ "(\\" ++ client clientId ++ " ->\n")
                         ++ indent
