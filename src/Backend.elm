@@ -1,4 +1,4 @@
-module Backend exposing (..)
+module Backend exposing (app)
 
 import Array
 import Array.Extra
@@ -16,7 +16,7 @@ app =
         { init = init
         , update = update
         , updateFromFrontend = updateFromFrontend
-        , subscriptions = \m -> Sub.none
+        , subscriptions = \_ -> Sub.none
         }
 
 
@@ -137,4 +137,4 @@ updateFromFrontend sessionId clientId msg model =
 getSessionByClientId : ClientId -> BackendModel -> Maybe ( SessionName, Session )
 getSessionByClientId clientId model =
     AssocList.toList model.sessions
-        |> List.Extra.find (\( sessionName, session ) -> AssocSet.member clientId session.connections)
+        |> List.Extra.find (\( _, session ) -> AssocSet.member clientId session.connections)

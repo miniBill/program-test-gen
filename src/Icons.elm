@@ -1,4 +1,4 @@
-module Icons exposing (..)
+module Icons exposing (eye, eyeClosed)
 
 import Phosphor
 import Ui
@@ -10,7 +10,3 @@ eye =
 
 eyeClosed =
     Phosphor.eyeClosed Phosphor.Regular |> Phosphor.toHtml [] |> Ui.html |> Ui.el [ Ui.width Ui.shrink ]
-
-
-copy =
-    Phosphor.copy Phosphor.Regular |> Phosphor.toHtml [] |> Ui.html |> Ui.el [ Ui.width Ui.shrink ]
