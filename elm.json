@@ -24,6 +24,7 @@
             "elmcraft/core-extra": "2.0.0",
             "erlandsona/assoc-set": "1.1.2",
             "lamdera/codecs": "1.0.0",
+            "lamdera/containers": "1.0.0",
             "lamdera/core": "1.0.0",
             "mdgriffith/elm-bezier": "1.0.0",
             "miniBill/elm-codec": "2.1.0",

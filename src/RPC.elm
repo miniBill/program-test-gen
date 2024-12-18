@@ -1,15 +1,15 @@
 module RPC exposing (..)
 
 import Array
-import AssocList
-import AssocSet
 import Codec exposing (Codec)
 import Frontend
 import Json.Decode
 import Json.Encode
 import Lamdera
 import LamderaRPC exposing (HttpBody(..))
+import SeqDict
 import SessionName exposing (SessionName)
+import Set
 import Types exposing (BackendModel, BackendMsg(..), Event, ToFrontend(..))
 
 
@@ -390,7 +390,7 @@ lamdera_handleEndpoints _ args model =
                                 model2 =
                                     { model
                                         | sessions =
-                                            AssocList.update
+                                            SeqDict.update
                                                 sessionName
                                                 (\maybeSession ->
                                                     (case maybeSession of
@@ -399,7 +399,7 @@ lamdera_handleEndpoints _ args model =
 
                                                         Nothing ->
                                                             { history = Array.fromList [ event ]
-                                                            , connections = AssocSet.empty
+                                                            , connections = Set.empty
                                                             , settings =
                                                                 { includeClientPos = True
                                                                 , includePagePos = True
@@ -439,9 +439,9 @@ lamdera_handleEndpoints _ args model =
 
 broadcastToClients : SessionName -> ToFrontend -> BackendModel -> Cmd BackendMsg
 broadcastToClients sessionName toFrontend model =
-    case AssocList.get sessionName model.sessions of
+    case SeqDict.get sessionName model.sessions of
         Just session ->
-            AssocSet.toList session.connections
+            Set.toList session.connections
                 |> List.map (\clientId -> Lamdera.sendToFrontend clientId toFrontend)
                 |> Cmd.batch
 
