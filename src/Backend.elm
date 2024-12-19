@@ -2,12 +2,12 @@ module Backend exposing (app)
 
 import Array
 import Array.Extra
-import AssocList
-import AssocSet
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra
 import RPC
+import SeqDict
 import SessionName exposing (SessionName)
+import Set
 import Types exposing (..)
 
 
@@ -22,7 +22,7 @@ app =
 
 init : ( BackendModel, Cmd BackendMsg )
 init =
-    ( { sessions = AssocList.empty }
+    ( { sessions = SeqDict.empty }
     , Cmd.none
     )
 
@@ -33,8 +33,8 @@ update msg model =
         ClientDisconnected _ clientId ->
             ( { model
                 | sessions =
-                    AssocList.map
-                        (\_ session -> { session | connections = AssocSet.remove clientId session.connections })
+                    SeqDict.map
+                        (\_ session -> { session | connections = Set.remove clientId session.connections })
                         model.sessions
               }
             , Cmd.none
@@ -42,17 +42,17 @@ update msg model =
 
 
 updateFromFrontend : SessionId -> ClientId -> ToBackend -> BackendModel -> ( BackendModel, Cmd BackendMsg )
-updateFromFrontend sessionId clientId msg model =
+updateFromFrontend _ clientId msg model =
     case msg of
         LoadSessionRequest sessionName ->
-            case AssocList.get sessionName model.sessions of
+            case SeqDict.get sessionName model.sessions of
                 Just session ->
                     ( { model
                         | sessions =
-                            AssocList.insert
+                            SeqDict.insert
                                 sessionName
                                 { session
-                                    | connections = AssocSet.insert clientId session.connections
+                                    | connections = Set.insert clientId session.connections
                                 }
                                 model.sessions
                       }
@@ -66,7 +66,7 @@ updateFromFrontend sessionId clientId msg model =
                         session : Session
                         session =
                             { history = Array.empty
-                            , connections = AssocSet.singleton clientId
+                            , connections = Set.singleton clientId
                             , settings =
                                 { includeScreenPos = False
                                 , includePagePos = True
@@ -75,7 +75,7 @@ updateFromFrontend sessionId clientId msg model =
                                 }
                             }
                     in
-                    ( { model | sessions = AssocList.insert sessionName session model.sessions }
+                    ( { model | sessions = SeqDict.insert sessionName session model.sessions }
                     , Lamdera.sendToFrontend
                         clientId
                         (LoadSessionResponse
@@ -92,7 +92,7 @@ updateFromFrontend sessionId clientId msg model =
                         model2 =
                             { model
                                 | sessions =
-                                    AssocList.insert
+                                    SeqDict.insert
                                         sessionName
                                         { session | history = Array.empty }
                                         model.sessions
@@ -110,7 +110,7 @@ updateFromFrontend sessionId clientId msg model =
                 Just ( sessionName, session ) ->
                     ( { model
                         | sessions =
-                            AssocList.insert
+                            SeqDict.insert
                                 sessionName
                                 { session
                                     | history = Array.Extra.update index (\event -> { event | isHidden = isHidden }) session.history
@@ -126,7 +126,7 @@ updateFromFrontend sessionId clientId msg model =
         SetSettingsRequest data ->
             case getSessionByClientId clientId model of
                 Just ( sessionName, session ) ->
-                    ( { model | sessions = AssocList.insert sessionName { session | settings = data } model.sessions }
+                    ( { model | sessions = SeqDict.insert sessionName { session | settings = data } model.sessions }
                     , Cmd.none
                     )
 
@@ -136,5 +136,5 @@ updateFromFrontend sessionId clientId msg model =
 
 getSessionByClientId : ClientId -> BackendModel -> Maybe ( SessionName, Session )
 getSessionByClientId clientId model =
-    AssocList.toList model.sessions
-        |> List.Extra.find (\( _, session ) -> AssocSet.member clientId session.connections)
+    SeqDict.toList model.sessions
+        |> List.Extra.find (\( _, session ) -> Set.member clientId session.connections)
