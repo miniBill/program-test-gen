@@ -1,4 +1,4 @@
-module JsCode exposing (..)
+module JsCode exposing (code)
 
 
 code : String -> String -> String

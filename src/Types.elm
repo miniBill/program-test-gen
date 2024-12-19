@@ -1,4 +1,4 @@
-module Types exposing (..)
+module Types exposing (BackendModel, BackendMsg(..), BlurEvent, CheckViewEvent, ClickEvent, Code(..), CommitStatus(..), ConnectEvent, Event, EventType(..), FocusEvent, FromJsPortEvent, FrontendModel(..), FrontendMsg(..), HttpEvent, HttpLocalEvent, InputEvent, KeyEvent, LinkEvent, LoadedData, LoadingData, MouseEvent, ParseError(..), ParsedCode, ParsedCodeStatus(..), PasteEvent, PointerEvent, Session, Settings, ToBackend(..), ToFrontend(..), Touch, TouchEvent, WheelEvent, WindowResizeEvent)
 
 import Array exposing (Array)
 import AssocList
@@ -7,7 +7,6 @@ import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Lamdera exposing (ClientId, SessionId)
 import SessionName exposing (SessionName)
-import Set exposing (Set)
 import Ui.Anim
 import Url exposing (Url)
 

@@ -17,7 +17,7 @@ import Html.Attributes
 import Icons
 import JsCode
 import Json.Decode
-import Lamdera exposing (ClientId, SessionId)
+import Lamdera exposing (ClientId)
 import List.Extra
 import Maybe.Extra
 import Random
@@ -31,7 +31,7 @@ import Ui.Events
 import Ui.Font
 import Ui.Input
 import Ui.Prose
-import Url exposing (Url)
+import Url
 import Url.Parser
 
 
@@ -220,7 +220,7 @@ updateLoaded msg model =
         PressedEvent ->
             ( model, Cmd.none )
 
-        GotFile { name, content } ->
+        GotFile { content } ->
             ( { model
                 | parsedCode =
                     case parseCode content of
@@ -746,30 +746,7 @@ eventsToEvent2Helper state =
     Maybe.Extra.toList state.previousEvent
         ++ state.rest
         |> List.reverse
-        |> List.foldl
-            (\event a ->
-                { previousEvent = Just event
-                , list =
-                    case a.previousEvent of
-                        Just { time } ->
-                            let
-                                delta : Int
-                                delta =
-                                    event.time - time
-                            in
-                            if delta > 0 then
-                                event.eventType :: a.list
-
-                            else
-                                event.eventType :: a.list
-
-                        Nothing ->
-                            event.eventType :: a.list
-                }
-            )
-            { previousEvent = Nothing, list = [] }
-        |> .list
-        |> List.reverse
+        |> List.map .eventType
 
 
 eventsToEvent2 :
