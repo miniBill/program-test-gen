@@ -44,7 +44,9 @@
         }
     },
     "test-dependencies": {
-        "direct": {},
+        "direct": {
+            "wolfadex/elm-ansi": "3.0.0"
+        },
         "indirect": {}
     }
 }
