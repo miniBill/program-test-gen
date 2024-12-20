@@ -1,4 +1,4 @@
-port module Frontend exposing (addEvent, app)
+port module Frontend exposing (addEvent, app, codegen, newCode)
 
 import Array exposing (Array)
 import Browser exposing (UrlRequest(..))
@@ -532,7 +532,7 @@ parseCode code =
 newCode : ParsedCode
 newCode =
     { codeParts =
-        [ UserCode """module MyTests exposing (main, setup, tests)
+        [ """module MyTests exposing (main, setup, tests)
 
 import Backend
 import Bytes exposing (Bytes)
@@ -578,14 +578,18 @@ handlePortToJs { currentRequest } =
 
 {-| Please don't modify or rename this function -}
 portRequests : Dict String (String, Json.Encode.Value)"""
+            |> String.replace "\u{000D}" ""
+            |> UserCode
         , PortRequestCode
-        , UserCode """|> Dict.fromList
+        , """|> Dict.fromList
 
 
 {-| Please don't modify or rename this function -}
 httpRequests : Dict String String"""
+            |> String.replace "\u{000D}" ""
+            |> UserCode
         , HttpRequestCode
-        , UserCode """|> Dict.fromList
+        , """|> Dict.fromList
 
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
@@ -630,6 +634,8 @@ tests httpData =
                 domain
     in
     ["""
+            |> String.replace "\u{000D}" ""
+            |> UserCode
         , TestEntryPoint
         , UserCode "\n    ]"
         ]
