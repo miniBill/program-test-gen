@@ -55,6 +55,35 @@ test =
                       , eventType = Click { targetId = Just "edit" }
                       , clientId = "clientId0"
                       }
+                    , { isHidden = False
+                      , timestamp = 300
+                      , eventType =
+                            Connect
+                                { url = "https://my-site.com/about"
+                                , sessionId = "sessionId0"
+                                , windowWidth = 1100
+                                , windowHeight = 700
+                                }
+                      , clientId = "clientId1"
+                      }
+                    , { isHidden = False
+                      , timestamp = 400
+                      , eventType = ClickLink { path = "/" }
+                      , clientId = "clientId1"
+                      }
+                    , { isHidden = False
+                      , timestamp = 400
+                      , eventType =
+                            KeyDown
+                                { targetId = "loginField"
+                                , ctrlKey = False
+                                , shiftKey = False
+                                , metaKey = False
+                                , altKey = False
+                                , key = "h"
+                                }
+                      , clientId = "clientId0"
+                      }
                     ]
                     |> Expect.equal
                         (expected
@@ -70,6 +99,16 @@ test =
             (\\tab1 ->
                 [ tab1.click 100 (Dom.id "start")
                 , tab1.click 100 (Dom.id "edit")
+                , T.connectFrontend
+                    100
+                    (Effect.Lamdera.sessionIdFromString "sessionId0")
+                    /my-site.com/about
+                    { width = 1100, height = 700 }
+                    (\\tab2 ->
+                        [ tab2.clickLink 100 "/"
+                        , tab1.keyDown 0 (Dom.id "loginField") "h" [  ]
+                        ]
+                    )
                 ]
             )
         ]"""
