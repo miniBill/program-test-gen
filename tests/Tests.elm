@@ -166,21 +166,21 @@ expectEqualMultiline exp actual =
         Expect.fail (String.join "\n" (header :: diff))
 
 
-            changeToString : Diff.Change String -> String
-            changeToString change =
-                case change of
-                    Diff.NoChange before after ->
-                        if before == after then
-                            " " ++ before
+changeToString : Diff.Change String -> String
+changeToString change =
+    case change of
+        Diff.NoChange before after ->
+            if before == after then
+                " " ++ before
 
-                        else
+            else
                 lineChangeToString before after
 
-                    Diff.Added line ->
-                        Ansi.Color.fontColor Ansi.Color.green ("+" ++ line)
+        Diff.Added line ->
+            Ansi.Color.fontColor Ansi.Color.green ("+" ++ line)
 
-                    Diff.Removed line ->
-                        Ansi.Color.fontColor Ansi.Color.red ("-" ++ line)
+        Diff.Removed line ->
+            Ansi.Color.fontColor Ansi.Color.red ("-" ++ line)
 
 
 lineChangeToString : String -> String -> String
@@ -241,8 +241,8 @@ isChange c =
         Diff.NoChange b a ->
             b /= a
 
-                _ ->
-                    True
+        _ ->
+            True
 
 
 expected : String -> String
