@@ -1,7 +1,10 @@
-module Tests exposing (..)
+module Tests exposing (expected, test)
 
+import Ansi.Color
+import Diff
 import Expect
 import Frontend
+import List.Extra
 import Test exposing (Test)
 import Types exposing (EventType(..))
 
@@ -19,7 +22,7 @@ test =
                     , showAllCode = True
                     }
                     []
-                    |> Expect.equal (expected "")
+                    |> expectEqualMultiline (expected "")
         , Test.test "Default codegen with one test" <|
             \_ ->
                 Frontend.codegen
@@ -85,7 +88,7 @@ test =
                       , clientId = "clientId0"
                       }
                     ]
-                    |> Expect.equal
+                    |> expectEqualMultiline
                         (expected
                             """ T.start
         "test0"
@@ -114,6 +117,132 @@ test =
         ]"""
                         )
         ]
+
+
+expectEqualMultiline : String -> String -> Expect.Expectation
+expectEqualMultiline exp actual =
+    if exp == actual then
+        Expect.pass
+
+    else
+        let
+            context : number
+            context =
+                4
+
+            diff : List String
+            diff =
+                Diff.diffWith (\l r -> String.trim l == String.trim r)
+                    (String.lines exp)
+                    (String.lines actual)
+                    |> gatherGroups
+                    |> List.concatMap
+                        (\( head, tail ) ->
+                            case head of
+                                Diff.NoChange _ _ ->
+                                    if
+                                        (List.length tail > 2 * context)
+                                            && List.all (\t -> not (isChange t)) tail
+                                    then
+                                        head
+                                            :: List.take (context - 1) tail
+                                            ++ Diff.NoChange "" ""
+                                            :: Diff.NoChange "---" "---"
+                                            :: Diff.NoChange "" ""
+                                            :: List.reverse (List.take context (List.reverse tail))
+
+                                    else
+                                        head :: tail
+
+                                _ ->
+                                    head :: tail
+                        )
+                    |> List.map changeToString
+
+            header : String
+            header =
+                Ansi.Color.fontColor Ansi.Color.blue "Diff from expected to actual:"
+        in
+        Expect.fail (String.join "\n" (header :: diff))
+
+
+            changeToString : Diff.Change String -> String
+            changeToString change =
+                case change of
+                    Diff.NoChange before after ->
+                        if before == after then
+                            " " ++ before
+
+                        else
+                lineChangeToString before after
+
+                    Diff.Added line ->
+                        Ansi.Color.fontColor Ansi.Color.green ("+" ++ line)
+
+                    Diff.Removed line ->
+                        Ansi.Color.fontColor Ansi.Color.red ("-" ++ line)
+
+
+lineChangeToString : String -> String -> String
+lineChangeToString before after =
+    let
+        ( befores, afters ) =
+            Diff.diff (String.toList before) (String.toList after)
+                |> List.foldr
+                    (\change ( bacc, aacc ) ->
+                        case change of
+                            Diff.NoChange c _ ->
+                                let
+                                    s : String
+                                    s =
+                                        String.fromChar c
+                                in
+                                ( s :: bacc
+                                , s :: aacc
+                                )
+
+                            Diff.Added a ->
+                                let
+                                    s : String
+                                    s =
+                                        String.fromChar a
+                                            |> Ansi.Color.backgroundColor Ansi.Color.green
+                                in
+                                ( bacc
+                                , s :: aacc
+                                )
+
+                            Diff.Removed r ->
+                                let
+                                    s : String
+                                    s =
+                                        String.fromChar r
+                                            |> Ansi.Color.backgroundColor Ansi.Color.red
+                                in
+                                ( s :: bacc
+                                , aacc
+                                )
+                    )
+                    ( [], [] )
+    in
+    Ansi.Color.fontColor Ansi.Color.red ("-" ++ String.concat befores)
+        ++ "\n"
+        ++ Ansi.Color.fontColor Ansi.Color.green ("+" ++ String.concat afters)
+
+
+gatherGroups : List (Diff.Change a) -> List ( Diff.Change a, List (Diff.Change a) )
+gatherGroups list =
+    List.Extra.groupWhile (\l r -> isChange l == isChange r) list
+
+
+isChange : Diff.Change a -> Bool
+isChange c =
+    case c of
+        Diff.NoChange b a ->
+            b /= a
+
+                _ ->
+                    True
 
 
 expected : String -> String
