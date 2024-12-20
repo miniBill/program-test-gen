@@ -5,13 +5,27 @@ import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
 import Browser.Navigation
-import Dict
+import Dict exposing (Dict)
+import Elm
+import Elm.Annotation
+import Elm.Arg
+import Elm.Declare
+import Elm.Op
 import Elm.Parser
 import Elm.Syntax.Declaration exposing (Declaration(..))
 import Elm.Syntax.Expression exposing (Expression(..))
 import Elm.Syntax.Node as Node exposing (Node(..))
+import Elm.ToString
 import Env
 import File.Download
+import Gen.Dict
+import Gen.Effect.Browser.Dom
+import Gen.Effect.Lamdera
+import Gen.Effect.Test
+import Gen.Effect.Time
+import Gen.Json.Decode
+import Gen.Json.Encode
+import Gen.Result
 import Html
 import Html.Attributes
 import Icons
@@ -448,8 +462,8 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
                 sorted =
                     List.sortBy
                         (\( a, _, _ ) -> a)
-                        [ ( httpRequestsStart, httpRequestsEnd, HttpRequestCode )
-                        , ( portRequestsStart, portRequestsEnd, PortRequestCode )
+                        [ ( httpRequestsStart, httpRequestsEnd + String.length "|> Dict.fromList", HttpRequestCode )
+                        , ( portRequestsStart, portRequestsEnd + String.length "|> Dict.fromList", PortRequestCode )
                         , ( testsEnd, testsEnd, TestEntryPoint )
                         ]
 
@@ -512,7 +526,7 @@ parseCodeHelper code httpRequestsStart portRequestsStart testsStart =
 
 parseCode : String -> Result ParseError ParsedCode
 parseCode code =
-    case ( String.indexes "\nhttpRequests =" code, String.indexes "\nportRequests =" code, String.indexes "\ntests : " code ) of
+    case ( String.indexes "\nhttpRequests :" code, String.indexes "\nportRequests :" code, String.indexes "\ntests : " code ) of
         ( [ httpRequestsStart ], [ portRequestsStart ], [ testsStart ] ) ->
             parseCodeHelper code httpRequestsStart portRequestsStart testsStart
 
@@ -565,10 +579,16 @@ domain : Url
 domain =
     { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
 
-
-stringToJson : String -> Json.Encode.Value
-stringToJson json =
-    Result.withDefault Json.Encode.null (Json.Decode.decodeString Json.Decode.value json)
+"""
+            |> String.replace "\u{000D}" ""
+            |> UserCode
+        , UserCode
+            (stringToJson.declaration
+                |> Elm.ToString.declarationWith { aliases = standardAliases }
+                |> List.map .body
+                |> String.join "\n\n"
+            )
+        , """
 
 
 handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
@@ -576,20 +596,20 @@ handlePortToJs { currentRequest } =
     Dict.get currentRequest.portName portRequests
 
 
-{-| Please don't modify or rename this function -}
-portRequests : Dict String (String, Json.Encode.Value)"""
+{-| Please don't modify or rename this function
+-}"""
             |> String.replace "\u{000D}" ""
             |> UserCode
         , PortRequestCode
-        , """|> Dict.fromList
+        , """
 
 
-{-| Please don't modify or rename this function -}
-httpRequests : Dict String String"""
+{-| Please don't modify or rename this function
+-}"""
             |> String.replace "\u{000D}" ""
             |> UserCode
         , HttpRequestCode
-        , """|> Dict.fromList
+        , """
 
 
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
@@ -748,6 +768,11 @@ type EventType2
     | Wheel2 ClientId MillisecondWaitBefore WheelEvent
 
 
+eventsToEvent2Helper :
+    { previousEvent : Maybe { eventType : EventType2, time : Int }
+    , rest : List { eventType : EventType2, time : Int }
+    }
+    -> List EventType2
 eventsToEvent2Helper state =
     Maybe.Extra.toList state.previousEvent
         ++ state.rest
@@ -756,7 +781,9 @@ eventsToEvent2Helper state =
 
 
 eventsToEvent2 :
-    { previousEvent : Maybe { eventType : EventType2, time : Int }, rest : List { eventType : EventType2, time : Int } }
+    { previousEvent : Maybe { eventType : EventType2, time : Int }
+    , rest : List { eventType : EventType2, time : Int }
+    }
     -> Int
     -> List Event
     -> List EventType2
@@ -1090,7 +1117,12 @@ codegen parsedCode settings events =
         testsText : String
         testsText =
             tests
-                |> List.indexedMap (\index ( head, rest ) -> testCode settings head.timestamp index (head :: rest))
+                |> List.indexedMap
+                    (\index ( head, rest ) ->
+                        testCode settings head.timestamp index (head :: rest)
+                            |> Elm.ToString.expressionWith { aliases = standardAliases }
+                            |> .body
+                    )
                 |> String.join "\n    ,"
                 |> (\a ->
                         if parsedCode.noPriorTests || List.isEmpty tests then
@@ -1117,9 +1149,14 @@ codegen parsedCode settings events =
                     |> (\a -> parsedCode.httpRequests ++ a ++ localRequests)
                     |> Dict.fromList
                     |> Dict.toList
-                    |> List.map (\( first, second ) -> "( \"" ++ first ++ "\", \"" ++ second ++ "\" )")
-                    |> String.join "\n    , "
-                    |> (\a -> "\nhttpRequests =\n    [ " ++ a ++ "\n    ]\n        ")
+                    |> List.map (\( first, second ) -> Elm.tuple (Elm.string first) (Elm.string second))
+                    |> Elm.list
+                    |> Elm.Op.pipe Gen.Dict.values_.fromList
+                    |> Elm.withType (Gen.Dict.annotation_.dict Elm.Annotation.string Elm.Annotation.string)
+                    |> Elm.declaration "httpRequests"
+                    |> Elm.ToString.declaration
+                    |> List.map .body
+                    |> String.join "\n\n"
 
             localRequests : List ( String, String )
             localRequests =
@@ -1155,21 +1192,23 @@ codegen parsedCode settings events =
                     |> List.Extra.uniqueBy (\a -> a.triggeredFromPort)
                     |> List.map
                         (\fromJsPort ->
-                            "( \""
-                                ++ fromJsPort.triggeredFromPort
-                                ++ "\", ( \""
-                                ++ fromJsPort.port_
-                                ++ "\", stringToJson "
-                                ++ (if String.contains "\"" fromJsPort.data then
-                                        "\"\"\"" ++ fromJsPort.data ++ "\"\"\""
-
-                                    else
-                                        "\"" ++ fromJsPort.data ++ "\""
-                                   )
-                                ++ " ) )"
+                            Elm.tuple (Elm.string fromJsPort.triggeredFromPort)
+                                (Elm.tuple
+                                    (Elm.string fromJsPort.port_)
+                                    (stringToJson.call (Elm.string fromJsPort.data))
+                                )
                         )
-                    |> String.join "\n    , "
-                    |> (\a -> "\nportRequests =\n    [ " ++ a ++ "\n    ]\n        ")
+                    |> Elm.list
+                    |> Elm.Op.pipe Gen.Dict.values_.fromList
+                    |> Elm.withType
+                        (Gen.Dict.annotation_.dict
+                            Elm.Annotation.string
+                            (Elm.Annotation.tuple Elm.Annotation.string Gen.Json.Encode.annotation_.value)
+                        )
+                    |> Elm.declaration "portRequests"
+                    |> Elm.ToString.declaration
+                    |> List.map .body
+                    |> String.join "\n\n"
         in
         List.map
             (\codePart ->
@@ -1187,10 +1226,27 @@ codegen parsedCode settings events =
                         testsText
             )
             parsedCode.codeParts
-            |> String.concat
+            |> String.join "\n\n"
 
     else
         testsText
+
+
+standardAliases : List ( List String, String )
+standardAliases =
+    [ ( [ "Effect", "Browser", "Dom" ], "Dom" )
+    , ( [ "Effect", "Lamdera" ], "Lamdera" )
+    , ( [ "Effect", "Test" ], "T" )
+    , ( [ "Test", "Html", "Selector" ], "Selector" )
+    ]
+
+
+stringToJson : Elm.Declare.Function (Elm.Expression -> Elm.Expression)
+stringToJson =
+    Elm.Declare.fn "stringToJson" (Elm.Arg.var "json") <|
+        \json ->
+            Gen.Json.Decode.call_.decodeString Gen.Json.Decode.value json
+                |> Gen.Result.withDefault Gen.Json.Encode.null
 
 
 urlToStringNoDomain : String -> String
@@ -1206,62 +1262,59 @@ urlToStringNoDomain url =
             url
 
 
-eventToString : Int -> Settings -> List ClientId -> Int -> List EventType2 -> List String
-eventToString depth settings clients startTime events =
-    List.map
+eventToExpression : Int -> Settings -> Dict ClientId Elm.Expression -> Int -> List EventType2 -> List Elm.Expression
+eventToExpression depth settings clients startTime events =
+    List.filterMap
         (\event ->
             let
-                client clientId =
-                    case List.Extra.findIndex (\a -> a == clientId) clients of
-                        Just index ->
-                            "tab" ++ String.fromInt (index + 1)
-
-                        Nothing ->
-                            "tab"
+                clientExpression : ClientId -> Elm.Expression
+                clientExpression clientId =
+                    Dict.get clientId clients
+                        |> Maybe.withDefault (Elm.val "tab")
             in
             case event of
                 Connect2 clientId delay { url, sessionId, windowWidth, windowHeight } events2 ->
-                    let
-                        indent =
-                            String.repeat (8 * depth + 12) " "
-                    in
-                    "T.connectFrontend\n"
-                        ++ (indent ++ String.fromInt delay ++ "\n")
-                        ++ (indent ++ "(Effect.Lamdera.sessionIdFromString \"" ++ sessionId ++ "\")\n")
-                        ++ (indent ++ urlToStringNoDomain url ++ "\n")
-                        ++ (indent ++ "{ width = " ++ String.fromInt windowWidth ++ ", height = " ++ String.fromInt windowHeight ++ " }\n")
-                        ++ (indent ++ "(\\" ++ client clientId ++ " ->\n")
-                        ++ indent
-                        ++ "    [ "
-                        ++ String.join
-                            ("\n" ++ indent ++ "    , ")
-                            (eventToString (depth + 1) settings clients startTime events2)
-                        ++ "\n"
-                        ++ indent
-                        ++ "    ]\n"
-                        ++ indent
-                        ++ ")"
+                    Just <|
+                        Elm.functionReduced "arg" <|
+                            Gen.Effect.Test.connectFrontend
+                                (Elm.int delay)
+                                (Gen.Effect.Lamdera.sessionIdFromString sessionId)
+                                (urlToStringNoDomain url)
+                                { width = windowWidth
+                                , height = windowHeight
+                                }
+                                (\client ->
+                                    Elm.list
+                                        (eventToExpression (depth + 1)
+                                            settings
+                                            (Dict.insert clientId client clients)
+                                            startTime
+                                            events2
+                                        )
+                                )
 
                 WindowResize2 clientId delay resizeEvent ->
-                    client clientId
-                        ++ ".resizeWindow "
-                        ++ String.fromInt delay
-                        ++ " { width = "
-                        ++ String.fromInt resizeEvent.width
-                        ++ ", height = "
-                        ++ String.fromInt resizeEvent.height
-                        ++ " }"
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "resizeWindow"
+                        )
+                        [ Elm.int delay
+                        , Elm.record
+                            [ ( "width", Elm.int resizeEvent.width )
+                            , ( "height", Elm.int resizeEvent.height )
+                            ]
+                        ]
+                        |> Just
 
                 KeyDown2 clientId delay keyEvent ->
-                    client clientId
-                        ++ ".keyDown "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc keyEvent.targetId
-                        ++ " \""
-                        ++ keyEvent.key
-                        ++ "\" [ "
-                        ++ String.join ", "
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "keyDown"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc keyEvent.targetId
+                        , Elm.string keyEvent.key
+                        , Elm.list
                             (List.filterMap
                                 (\( name, bool ) ->
                                     if bool then
@@ -1270,255 +1323,299 @@ eventToString depth settings clients startTime events =
                                     else
                                         Nothing
                                 )
-                                [ ( "Key_ShiftHeld", keyEvent.shiftKey )
-                                , ( "Key_AltHeld", keyEvent.altKey )
-                                , ( "Key_CtrlHeld", keyEvent.ctrlKey )
-                                , ( "Key_MetaHeld", keyEvent.metaKey )
+                                [ ( Elm.val "Key_ShiftHeld", keyEvent.shiftKey )
+                                , ( Elm.val "Key_AltHeld", keyEvent.altKey )
+                                , ( Elm.val "Key_CtrlHeld", keyEvent.ctrlKey )
+                                , ( Elm.val "Key_MetaHeld", keyEvent.metaKey )
                                 ]
                             )
-                        ++ " ]"
+                        ]
+                        |> Just
 
                 KeyUp2 clientId delay keyEvent ->
-                    client clientId
-                        ++ ".keyUp "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc keyEvent.targetId
-                        ++ " \""
-                        ++ keyEvent.key
-                        ++ "\" [ "
-                        ++ String.join ", "
-                            (List.filterMap
-                                (\( name, bool ) ->
-                                    if bool then
-                                        Just name
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "keyUp"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc keyEvent.targetId
+                        , Elm.string keyEvent.key
+                        , List.filterMap
+                            (\( name, bool ) ->
+                                if bool then
+                                    Just name
 
-                                    else
-                                        Nothing
-                                )
-                                [ ( "Key_ShiftHeld", keyEvent.shiftKey )
-                                , ( "Key_AltHeld", keyEvent.altKey )
-                                , ( "Key_CtrlHeld", keyEvent.ctrlKey )
-                                , ( "Key_MetaHeld", keyEvent.metaKey )
-                                ]
+                                else
+                                    Nothing
                             )
-                        ++ " ]"
+                            [ ( Elm.val "Key_ShiftHeld", keyEvent.shiftKey )
+                            , ( Elm.val "Key_AltHeld", keyEvent.altKey )
+                            , ( Elm.val "Key_CtrlHeld", keyEvent.ctrlKey )
+                            , ( Elm.val "Key_MetaHeld", keyEvent.metaKey )
+                            ]
+                            |> Elm.list
+                        ]
+                        |> Just
 
                 Click2 clientId delay mouseEvent ->
-                    client clientId
-                        ++ ".click "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc mouseEvent.targetId
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "click"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc mouseEvent.targetId
+                        ]
+                        |> Just
 
                 ClickLink2 clientId delay mouseEvent ->
-                    client clientId
-                        ++ ".clickLink \""
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ mouseEvent.path
-                        ++ "\""
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "clickLink"
+                        )
+                        [ Elm.string
+                            (String.fromInt delay
+                                ++ " "
+                                ++ mouseEvent.path
+                            )
+                        ]
+                        |> Just
 
                 Input2 clientId delay { targetId, text } ->
-                    client clientId
-                        ++ ".input "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc targetId
-                        ++ " \""
-                        ++ text
-                        ++ "\""
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "input"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc targetId
+                        , Elm.string text
+                        ]
+                        |> Just
 
                 FromJsPort2 _ _ _ ->
-                    ""
+                    Nothing
 
                 PointerDown2 clientId delay a ->
-                    pointerCodegen delay settings "pointerDown" (client clientId) a
+                    pointerCodegen delay settings "pointerDown" (clientExpression clientId) a
+                        |> Just
 
                 PointerUp2 clientId delay a ->
-                    pointerCodegen delay settings "pointerUp" (client clientId) a
+                    pointerCodegen delay settings "pointerUp" (clientExpression clientId) a
+                        |> Just
 
                 PointerMove2 clientId delay a ->
-                    pointerCodegen delay settings "pointerMove" (client clientId) a
+                    pointerCodegen delay settings "pointerMove" (clientExpression clientId) a
+                        |> Just
 
                 PointerLeave2 clientId delay a ->
-                    pointerCodegen delay settings "pointerLeave" (client clientId) a
+                    pointerCodegen delay settings "pointerLeave" (clientExpression clientId) a
+                        |> Just
 
                 PointerCancel2 clientId delay a ->
-                    pointerCodegen delay settings "pointerCancel" (client clientId) a
+                    pointerCodegen delay settings "pointerCancel" (clientExpression clientId) a
+                        |> Just
 
                 PointerOver2 clientId delay a ->
-                    pointerCodegen delay settings "pointerOver" (client clientId) a
+                    pointerCodegen delay settings "pointerOver" (clientExpression clientId) a
+                        |> Just
 
                 PointerEnter2 clientId delay a ->
-                    pointerCodegen delay settings "pointerEnter" (client clientId) a
+                    pointerCodegen delay settings "pointerEnter" (clientExpression clientId) a
+                        |> Just
 
                 PointerOut2 clientId delay a ->
-                    pointerCodegen delay settings "pointerOut" (client clientId) a
+                    pointerCodegen delay settings "pointerOut" (clientExpression clientId) a
+                        |> Just
 
                 TouchStart2 clientId delay a ->
-                    touchCodegen delay "touchStart" (client clientId) a
+                    touchCodegen delay "touchStart" (clientExpression clientId) a
+                        |> Just
 
                 TouchCancel2 clientId delay a ->
-                    touchCodegen delay "touchCancel" (client clientId) a
+                    touchCodegen delay "touchCancel" (clientExpression clientId) a
+                        |> Just
 
                 TouchMove2 clientId delay a ->
-                    touchCodegen delay "touchMove" (client clientId) a
+                    touchCodegen delay "touchMove" (clientExpression clientId) a
+                        |> Just
 
                 TouchEnd2 clientId delay a ->
-                    touchCodegen delay "touchEnd" (client clientId) a
+                    touchCodegen delay "touchEnd" (clientExpression clientId) a
+                        |> Just
 
                 CheckView2 clientId delay checkViewEvent ->
-                    client clientId
-                        ++ ".checkView "
-                        ++ String.fromInt delay
-                        ++ " (Test.Html.Query.has [ "
-                        ++ String.join ", " (List.map (\text -> "Selector.text \"" ++ text ++ "\"") checkViewEvent.selection)
-                        ++ " ])"
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "checkView"
+                        )
+                        [ Elm.int delay
+                        , Elm.apply
+                            (Elm.value
+                                { importFrom = [ "Test", "Html", "Query" ]
+                                , name = "has"
+                                , annotation = Nothing
+                                }
+                            )
+                            (List.map
+                                (\text ->
+                                    Elm.apply
+                                        (Elm.value
+                                            { importFrom = [ "Selector" ]
+                                            , name = "text"
+                                            , annotation = Nothing
+                                            }
+                                        )
+                                        [ Elm.string text ]
+                                )
+                                checkViewEvent.selection
+                            )
+                        ]
+                        |> Just
 
                 MouseDown2 clientId delay a ->
-                    mouseCodegen delay settings "mouseDown" (client clientId) a
+                    mouseCodegen delay settings "mouseDown" (clientExpression clientId) a
+                        |> Just
 
                 MouseUp2 clientId delay a ->
-                    mouseCodegen delay settings "mouseUp" (client clientId) a
+                    mouseCodegen delay settings "mouseUp" (clientExpression clientId) a
+                        |> Just
 
                 MouseMove2 clientId delay a ->
-                    mouseCodegen delay settings "mouseMove" (client clientId) a
+                    mouseCodegen delay settings "mouseMove" (clientExpression clientId) a
+                        |> Just
 
                 MouseLeave2 clientId delay a ->
-                    mouseCodegen delay settings "mouseLeave" (client clientId) a
+                    mouseCodegen delay settings "mouseLeave" (clientExpression clientId) a
+                        |> Just
 
                 MouseOver2 clientId delay a ->
-                    mouseCodegen delay settings "mouseOver" (client clientId) a
+                    mouseCodegen delay settings "mouseOver" (clientExpression clientId) a
+                        |> Just
 
                 MouseEnter2 clientId delay a ->
-                    mouseCodegen delay settings "mouseEnter" (client clientId) a
+                    mouseCodegen delay settings "mouseEnter" (clientExpression clientId) a
+                        |> Just
 
                 MouseOut2 clientId delay a ->
-                    mouseCodegen delay settings "mouseOut" (client clientId) a
+                    mouseCodegen delay settings "mouseOut" (clientExpression clientId) a
+                        |> Just
 
                 Focus2 clientId delay a ->
-                    client clientId
-                        ++ ".focus "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc a.targetId
-                        ++ "\n"
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "focus"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc a.targetId
+                        ]
+                        |> Just
 
                 Blur2 clientId delay a ->
-                    client clientId
-                        ++ ".blur "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc a.targetId
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "blur"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc a.targetId
+                        ]
+                        |> Just
 
                 Wheel2 clientId delay a ->
                     let
+                        deltaMode : String
+                        deltaMode =
+                            case a.deltaMode of
+                                1 ->
+                                    "DeltaLine"
+
+                                2 ->
+                                    "DeltaPage"
+
+                                _ ->
+                                    "DeltaPixel"
+
+                        modifiers : List Elm.Expression
                         modifiers =
                             List.filterMap
-                                (\( name, value, default ) ->
-                                    if value == default then
+                                (\( name, cond, value ) ->
+                                    if not cond then
                                         Nothing
 
                                     else
-                                        Just (name ++ " " ++ value)
+                                        Just (Elm.apply (Elm.val name) [ value ])
                                 )
-                                [ ( "DeltaX", String.fromFloat a.deltaX, "0" )
-                                , ( "DeltaZ", String.fromFloat a.deltaZ, "0" )
-                                , ( "DeltaMode"
-                                  , case a.deltaMode of
-                                        1 ->
-                                            "DeltaLine"
-
-                                        2 ->
-                                            "DeltaPage"
-
-                                        _ ->
-                                            "DeltaPixel"
-                                  , "DeltaPixel"
-                                  )
+                                [ ( "DeltaX", a.deltaX /= 0, Elm.float a.deltaX )
+                                , ( "DeltaZ", a.deltaZ /= 0, Elm.float a.deltaZ )
+                                , ( "DeltaMode", deltaMode /= "DeltaPixel", Elm.val deltaMode )
                                 ]
-                                |> String.join ", "
                     in
-                    client clientId
-                        ++ ".wheel "
-                        ++ String.fromInt delay
-                        ++ " "
-                        ++ targetIdFunc a.mouseEvent.targetId
-                        ++ " "
-                        ++ String.fromFloat a.deltaY
-                        ++ " ("
-                        ++ String.fromFloat a.mouseEvent.offsetX
-                        ++ ","
-                        ++ String.fromFloat a.mouseEvent.offsetY
-                        ++ ") [ "
-                        ++ modifiers
-                        ++ " ] "
-                        ++ mouseEventModifiers settings a.mouseEvent
+                    Elm.apply
+                        (clientExpression clientId
+                            |> Elm.get "wheel"
+                        )
+                        [ Elm.int delay
+                        , targetIdFunc a.mouseEvent.targetId
+                        , Elm.float a.deltaY
+                        , Elm.tuple
+                            (Elm.float a.mouseEvent.offsetX)
+                            (Elm.float a.mouseEvent.offsetY)
+                        , Elm.list modifiers
+                        , mouseEventModifiers settings a.mouseEvent
+                        ]
+                        |> Just
         )
         events
 
 
-testCode : Settings -> Int -> Int -> List Event -> String
+testCode : Settings -> Int -> Int -> List Event -> Elm.Expression
 testCode settings startTime testIndex events =
     let
-        clients : List ClientId
-        clients =
-            List.map .clientId events |> List.Extra.unique
-
         events2 =
             eventsToEvent2 { previousEvent = Nothing, rest = [] } startTime events
-                |> eventToString 0 settings clients startTime
+                |> eventToExpression 0 settings Dict.empty startTime
     in
-    " T.start\n        \"test"
-        ++ String.fromInt testIndex
-        ++ "\"\n        (Time.millisToPosix "
-        ++ String.fromInt startTime
-        ++ ")\n        config"
-        ++ "\n        [ "
-        ++ String.join "\n        , " events2
-        ++ "\n        ]"
+    Gen.Effect.Test.start
+        ("test" ++ String.fromInt testIndex)
+        (Gen.Effect.Time.millisToPosix startTime)
+        (Elm.val "config")
+        events2
 
 
-touchCodegen : MillisecondWaitBefore -> String -> String -> TouchEvent -> String
+touchCodegen : MillisecondWaitBefore -> String -> Elm.Expression -> TouchEvent -> Elm.Expression
 touchCodegen delay funcName client a =
     let
-        touchToString : Touch -> String
-        touchToString touch =
-            "{ id = "
-                ++ String.fromInt touch.identifier
-                ++ ", screenPos = ("
-                ++ String.fromFloat touch.screenX
-                ++ ", "
-                ++ String.fromFloat touch.screenY
-                ++ "), clientPos = ("
-                ++ String.fromFloat touch.clientX
-                ++ ", "
-                ++ String.fromFloat touch.clientY
-                ++ "), pagePos = ("
-                ++ String.fromFloat touch.pageX
-                ++ ", "
-                ++ String.fromFloat touch.pageY
-                ++ ") }"
+        touchToExpression : Touch -> Elm.Expression
+        touchToExpression touch =
+            let
+                tuple : Float -> Float -> Elm.Expression
+                tuple x y =
+                    Elm.tuple (Elm.float x) (Elm.float y)
+            in
+            Gen.Effect.Test.make_.touch
+                { id = Elm.int touch.identifier
+                , screenPos = tuple touch.screenX touch.screenY
+                , clientPos = tuple touch.clientX touch.clientY
+                , pagePos = tuple touch.pageX touch.pageY
+                }
     in
-    client
-        ++ "."
-        ++ funcName
-        ++ " "
-        ++ String.fromInt delay
-        ++ " "
-        ++ targetIdFunc a.targetId
-        ++ " { targetTouches = [ "
-        ++ String.join ", " (List.map touchToString a.targetTouches)
-        ++ " ], changedTouches = [ "
-        ++ String.join ", " (List.map touchToString a.targetTouches)
-        ++ " ] }"
+    Elm.apply
+        (client
+            |> Elm.get funcName
+        )
+        [ Elm.int delay
+        , targetIdFunc a.targetId
+        , Gen.Effect.Test.make_.touchEvent
+            { targetTouches =
+                Elm.list (List.map touchToExpression a.targetTouches)
+            , changedTouches =
+                Elm.list (List.map touchToExpression a.targetTouches)
+            }
+        ]
 
 
-pointerCodegen : MillisecondWaitBefore -> Settings -> String -> String -> PointerEvent -> String
+pointerCodegen : MillisecondWaitBefore -> Settings -> String -> Elm.Expression -> PointerEvent -> Elm.Expression
 pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } funcName client a =
     let
-        options : List String
+        options : List Elm.Expression
         options =
             List.filterMap
                 (\( name, include, ( x, y ) ) ->
@@ -1526,7 +1623,7 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
                         Nothing
 
                     else
-                        Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+                        Just (Elm.apply (Elm.val name) [ Elm.float x, Elm.float y ])
                 )
                 [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
                 , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
@@ -1536,39 +1633,39 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
                     identity
                     [ case a.button of
                         1 ->
-                            Just "PointerButton MainButton"
+                            Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "MainButton" ])
 
                         2 ->
-                            Just "PointerButton MiddleButton"
+                            Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "MiddleButton" ])
 
                         3 ->
-                            Just "PointerButton SecondButton"
+                            Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "SecondButton" ])
 
                         4 ->
-                            Just "PointerButton BackButton"
+                            Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "BackButton" ])
 
                         5 ->
-                            Just "PointerButton ForwardButton"
+                            Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "ForwardButton" ])
 
                         _ ->
                             Nothing
                     , if a.altKey then
-                        Just "AltHeld"
+                        Just (Elm.val "AltHeld")
 
                       else
                         Nothing
                     , if a.shiftKey then
-                        Just "ShiftHeld"
+                        Just (Elm.val "ShiftHeld")
 
                       else
                         Nothing
                     , if a.ctrlKey then
-                        Just "CtrlHeld"
+                        Just (Elm.val "CtrlHeld")
 
                       else
                         Nothing
                     , if a.metaKey then
-                        Just "MetaHeld"
+                        Just (Elm.val "MetaHeld")
 
                       else
                         Nothing
@@ -1576,49 +1673,39 @@ pointerCodegen delay { includeClientPos, includePagePos, includeScreenPos } func
                         Nothing
 
                       else
-                        Just ("PointerId " ++ String.fromInt a.pointerId)
+                        Just (Elm.apply (Elm.val "PointerId") [ Elm.int a.pointerId ])
                     , if a.isPrimary then
                         Nothing
 
                       else
-                        Just "IsNotPrimary"
+                        Just (Elm.val "IsNotPrimary")
                     ]
     in
-    client
-        ++ "."
-        ++ funcName
-        ++ " "
-        ++ String.fromInt delay
-        ++ " "
-        ++ targetIdFunc a.targetId
-        ++ " ("
-        ++ String.fromFloat a.offsetX
-        ++ ","
-        ++ String.fromFloat a.offsetY
-        ++ ") [ "
-        ++ String.join ", " options
-        ++ " ]"
+    Elm.apply
+        (client
+            |> Elm.get funcName
+        )
+        [ Elm.int delay
+        , targetIdFunc a.targetId
+        , Elm.tuple (Elm.float a.offsetX) (Elm.float a.offsetY)
+        , Elm.list options
+        ]
 
 
-mouseCodegen : MillisecondWaitBefore -> Settings -> String -> String -> MouseEvent -> String
+mouseCodegen : MillisecondWaitBefore -> Settings -> String -> Elm.Expression -> MouseEvent -> Elm.Expression
 mouseCodegen delay settings funcName client a =
-    client
-        ++ "."
-        ++ funcName
-        ++ " "
-        ++ String.fromInt delay
-        ++ " "
-        ++ targetIdFunc a.targetId
-        ++ " ("
-        ++ String.fromFloat a.offsetX
-        ++ ","
-        ++ String.fromFloat a.offsetY
-        ++ ") "
-        ++ mouseEventModifiers settings a
-        ++ "\n"
+    Elm.apply
+        (client
+            |> Elm.get funcName
+        )
+        [ Elm.int delay
+        , targetIdFunc a.targetId
+        , Elm.tuple (Elm.float a.offsetX) (Elm.float a.offsetY)
+        , mouseEventModifiers settings a
+        ]
 
 
-mouseEventModifiers : Settings -> MouseEvent -> String
+mouseEventModifiers : Settings -> MouseEvent -> Elm.Expression
 mouseEventModifiers { includeClientPos, includePagePos, includeScreenPos } a =
     List.filterMap
         (\( name, include, ( x, y ) ) ->
@@ -1626,60 +1713,59 @@ mouseEventModifiers { includeClientPos, includePagePos, includeScreenPos } a =
                 Nothing
 
             else
-                Just (name ++ " " ++ String.fromFloat x ++ " " ++ String.fromFloat y)
+                Just (Elm.apply name [ Elm.float x, Elm.float y ])
         )
-        [ ( "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
-        , ( "PageXY", includePagePos, ( a.pageX, a.pageY ) )
-        , ( "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
+        [ ( Elm.val "ScreenXY", includeScreenPos, ( a.screenX, a.screenY ) )
+        , ( Elm.val "PageXY", includePagePos, ( a.pageX, a.pageY ) )
+        , ( Elm.val "ClientXY", includeClientPos, ( a.clientX, a.clientY ) )
         ]
         ++ List.filterMap
             identity
             [ case a.button of
                 1 ->
-                    Just "PointerButton MainButton"
+                    Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "MainButton" ])
 
                 2 ->
-                    Just "PointerButton MiddleButton"
+                    Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "MiddleButton" ])
 
                 3 ->
-                    Just "PointerButton SecondButton"
+                    Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "SecondButton" ])
 
                 4 ->
-                    Just "PointerButton BackButton"
+                    Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "BackButton" ])
 
                 5 ->
-                    Just "PointerButton ForwardButton"
+                    Just (Elm.apply (Elm.val "PointerButton") [ Elm.val "ForwardButton" ])
 
                 _ ->
                     Nothing
             , if a.altKey then
-                Just "AltHeld"
+                Just (Elm.val "AltHeld")
 
               else
                 Nothing
             , if a.shiftKey then
-                Just "ShiftHeld"
+                Just (Elm.val "ShiftHeld")
 
               else
                 Nothing
             , if a.ctrlKey then
-                Just "CtrlHeld"
+                Just (Elm.val "CtrlHeld")
 
               else
                 Nothing
             , if a.metaKey then
-                Just "MetaHeld"
+                Just (Elm.val "MetaHeld")
 
               else
                 Nothing
             ]
-        |> String.join ", "
-        |> (\b -> "[ " ++ b ++ " ]")
+        |> Elm.list
 
 
-targetIdFunc : String -> String
+targetIdFunc : String -> Elm.Expression
 targetIdFunc id =
-    "(Dom.id \"" ++ id ++ "\")"
+    Gen.Effect.Browser.Dom.id id
 
 
 view : FrontendModel -> Browser.Document FrontendMsg
