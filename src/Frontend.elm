@@ -1,4 +1,4 @@
-port module Frontend exposing (addEvent, app, codegen, newCode)
+port module Frontend exposing (addEvent, app, codegen, newCode, parseCode, parseErrorToString)
 
 import Array exposing (Array)
 import Browser exposing (UrlRequest(..))
@@ -1911,43 +1911,43 @@ loadedView model =
                 ]
 
         ParseFailed error ->
-            Ui.el
-                []
-                ((case error of
-                    InvalidPortRequests ->
-                        "The portRequests function was found but couldn't be parsed."
-
-                    InvalidHttpRequests ->
-                        "The httpRequests function was found but couldn't be parsed."
-
-                    InvalidHttpAndPortRequests ->
-                        "The portRequests and httpRequests functions were found but couldn't be parsed."
-
-                    PortRequestsNotFound ->
-                        "The portRequests function wasn't found."
-
-                    HttpRequestsNotFound ->
-                        "The httpRequests function wasn't found."
-
-                    TestEntryPointNotFound ->
-                        "The test entry point (the \"]\" at the end of the the tests function) wasn't found."
-
-                    UnknownError ->
-                        "This end-to-end test module appears to be corrupted or the wrong file is being loaded."
-
-                    PortRequestsEndNotFound ->
-                        "The portRequests function was found but it's supposed to end with \"|> Dict.fromList\""
-
-                    HttpRequestsEndNotFound ->
-                        "The httpRequests function was found but it's supposed to end with \"|> Dict.fromList\""
-                 )
-                    |> Ui.text
-                )
+            parseErrorToString error |> Ui.text |> Ui.el []
 
         FileApiNotSupported ->
             Ui.el
                 [ Ui.centerX, Ui.centerY, Ui.widthMax 600, Ui.Font.size 20 ]
                 (Ui.text "Your browser doesn't support the File System API. It's needed in order to read and write to your end-to-end test module. It should work if you switch to Chrome (sorry).")
+
+
+parseErrorToString : ParseError -> String
+parseErrorToString error =
+    case error of
+        InvalidPortRequests ->
+            "The portRequests function was found but couldn't be parsed."
+
+        InvalidHttpRequests ->
+            "The httpRequests function was found but couldn't be parsed."
+
+        InvalidHttpAndPortRequests ->
+            "The portRequests and httpRequests functions were found but couldn't be parsed."
+
+        PortRequestsNotFound ->
+            "The portRequests function wasn't found."
+
+        HttpRequestsNotFound ->
+            "The httpRequests function wasn't found."
+
+        TestEntryPointNotFound ->
+            "The test entry point (the \"]\" at the end of the the tests function) wasn't found."
+
+        UnknownError ->
+            "This end-to-end test module appears to be corrupted or the wrong file is being loaded."
+
+        PortRequestsEndNotFound ->
+            "The portRequests function was found but it's supposed to end with \"|> Dict.fromList\""
+
+        HttpRequestsEndNotFound ->
+            "The httpRequests function was found but it's supposed to end with \"|> Dict.fromList\""
 
 
 simpleCheckbox : (Bool -> msg) -> String -> Bool -> Ui.Element msg

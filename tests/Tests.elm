@@ -1,4 +1,4 @@
-module Tests exposing (expected, test)
+module Tests exposing (exampleCode, test)
 
 import Ansi.Color
 import Diff
@@ -22,7 +22,7 @@ test =
                     , showAllCode = True
                     }
                     []
-                    |> expectEqualMultiline (expected "")
+                    |> expectEqualMultiline (exampleCode "\n    ")
         , Test.test "Default codegen with one test" <|
             \_ ->
                 Frontend.codegen
@@ -89,7 +89,7 @@ test =
                       }
                     ]
                     |> expectEqualMultiline
-                        (expected
+                        (exampleCode
                             """ T.start
         "test0"
         (Time.millisToPosix 0)
@@ -114,8 +114,149 @@ test =
                     )
                 ]
             )
-        ]"""
+        ]
+    
+    """
                         )
+        , Test.test "Add test to existing code that has no tests" <|
+            \_ ->
+                case Frontend.parseCode (exampleCode "") of
+                    Ok parsedCode ->
+                        Frontend.codegen
+                            parsedCode
+                            { includeClientPos = False
+                            , includePagePos = False
+                            , includeScreenPos = False
+                            , showAllCode = True
+                            }
+                            [ { isHidden = False
+                              , timestamp = 0
+                              , eventType = ResetBackend
+                              , clientId = "clientId0"
+                              }
+                            , { isHidden = False
+                              , timestamp = 0
+                              , eventType =
+                                    Connect
+                                        { url = "https://my-site.com"
+                                        , sessionId = "sessionId0"
+                                        , windowWidth = 1000
+                                        , windowHeight = 800
+                                        }
+                              , clientId = "clientId0"
+                              }
+                            , { isHidden = False
+                              , timestamp = 100
+                              , eventType = Click { targetId = Just "start" }
+                              , clientId = "clientId0"
+                              }
+                            ]
+                            |> expectEqualMultiline
+                                (exampleCode
+                                    """ T.start
+        "test0"
+        (Time.millisToPosix 0)
+        config
+        [ T.connectFrontend
+            0
+            (Effect.Lamdera.sessionIdFromString "sessionId0")
+            /my-site.com
+            { width = 1000, height = 800 }
+            (\\tab1 ->
+                [ tab1.click 100 (Dom.id "start")
+                ]
+            )
+        ]
+    """
+                                )
+
+                    Err error ->
+                        Expect.fail (Frontend.parseErrorToString error)
+        , Test.test "Add test to existing code that already has a test" <|
+            \_ ->
+                case
+                    Frontend.parseCode
+                        (exampleCode """ T.start
+        "myTest"
+        (Time.millisToPosix 0)
+        config
+        [ T.connectFrontend
+            0
+            (Effect.Lamdera.sessionIdFromString "sessionId0")
+            /my-site.com
+            { width = 1000, height = 800 }
+            (\\tab1 ->
+                [ tab1.click 100 (Dom.id "start")
+                ]
+            )
+        ]
+    """)
+                of
+                    Ok parsedCode ->
+                        Frontend.codegen
+                            parsedCode
+                            { includeClientPos = False
+                            , includePagePos = False
+                            , includeScreenPos = False
+                            , showAllCode = True
+                            }
+                            [ { isHidden = False
+                              , timestamp = 0
+                              , eventType = ResetBackend
+                              , clientId = "clientId0"
+                              }
+                            , { isHidden = False
+                              , timestamp = 0
+                              , eventType =
+                                    Connect
+                                        { url = "https://my-site.com"
+                                        , sessionId = "sessionId0"
+                                        , windowWidth = 1000
+                                        , windowHeight = 800
+                                        }
+                              , clientId = "clientId0"
+                              }
+                            , { isHidden = False
+                              , timestamp = 100
+                              , eventType = Click { targetId = Just "start" }
+                              , clientId = "clientId0"
+                              }
+                            ]
+                            |> expectEqualMultiline
+                                (exampleCode
+                                    """ T.start
+        "myTest"
+        (Time.millisToPosix 0)
+        config
+        [ T.connectFrontend
+            0
+            (Effect.Lamdera.sessionIdFromString "sessionId0")
+            /my-site.com
+            { width = 1000, height = 800 }
+            (\\tab1 ->
+                [ tab1.click 100 (Dom.id "start")
+                ]
+            )
+        ]
+    , T.start
+        "test0"
+        (Time.millisToPosix 0)
+        config
+        [ T.connectFrontend
+            0
+            (Effect.Lamdera.sessionIdFromString "sessionId0")
+            /my-site.com
+            { width = 1000, height = 800 }
+            (\\tab1 ->
+                [ tab1.click 100 (Dom.id "start")
+                ]
+            )
+        ]
+    """
+                                )
+
+                    Err error ->
+                        Expect.fail (Frontend.parseErrorToString error)
         ]
 
 
@@ -245,8 +386,8 @@ isChange c =
             True
 
 
-expected : String -> String
-expected tests =
+exampleCode : String -> String
+exampleCode tests =
     """module MyTests exposing (main, setup, tests)
 
 import Backend
@@ -350,7 +491,5 @@ tests httpData =
     in
     ["""
         ++ tests
-        ++ """
-    
-    ]"""
+        ++ "]"
         |> String.replace "\u{000D}" ""
