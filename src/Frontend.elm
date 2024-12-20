@@ -578,32 +578,27 @@ main =
 domain : Url
 domain =
     { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
+
+
 """
             |> String.replace "\u{000D}" ""
             |> UserCode
         , UserCode
             (stringToJson.declaration
-                |> Elm.ToString.declarationWith { aliases = standardAliases }
-                |> List.map .body
+                |> declarationToStringWithDocs
                 |> String.join "\n\n"
             )
-        , """
-handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
+        , """handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
     Dict.get currentRequest.portName portRequests
+
 
 """
             |> String.replace "\u{000D}" ""
             |> UserCode
         , PortRequestCode
-        , """
-
-"""
-            |> String.replace "\u{000D}" ""
-            |> UserCode
         , HttpRequestCode
-        , """
-handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
+        , """handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
 handleHttpRequests httpData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
         Just filepath ->
@@ -644,11 +639,11 @@ tests httpData =
                 (\\_ -> UnhandledMultiFileUpload)
                 domain
     in
-    ["""
+    [ """
             |> String.replace "\u{000D}" ""
             |> UserCode
         , TestEntryPoint
-        , UserCode "\n    ]"
+        , UserCode "]"
         ]
     , httpRequests = []
     , portRequests = []
@@ -1117,10 +1112,14 @@ codegen parsedCode settings events =
                 |> String.join "\n    ,"
                 |> (\a ->
                         if parsedCode.noPriorTests || List.isEmpty tests then
-                            a ++ "\n    "
+                            if String.isEmpty a then
+                                ""
+
+                            else
+                                a ++ "\n    "
 
                         else
-                            "\n    ," ++ a
+                            "\n    ," ++ a ++ "\n    "
                    )
     in
     if settings.showAllCode then
@@ -1204,23 +1203,33 @@ codegen parsedCode settings events =
                         [ code ]
 
                     HttpRequestCode ->
-                        httpRequests
-                            |> Elm.ToString.declarationWith { aliases = standardAliases }
-                            |> List.map (\{ body, docs } -> "{-| " ++ docs ++ "\n-}\n" ++ body)
+                        declarationToStringWithDocs httpRequests
 
                     PortRequestCode ->
-                        portRequests
-                            |> Elm.ToString.declarationWith { aliases = standardAliases }
-                            |> List.map (\{ body, docs } -> "{-| " ++ docs ++ "\n-}\n" ++ body)
+                        declarationToStringWithDocs portRequests
 
                     TestEntryPoint ->
                         [ testsText ]
             )
             parsedCode.codeParts
-            |> String.join "\n\n"
+            |> String.concat
 
     else
         testsText
+
+
+declarationToStringWithDocs : Elm.Declaration -> List String
+declarationToStringWithDocs declaration =
+    declaration
+        |> Elm.ToString.declarationWith { aliases = standardAliases }
+        |> List.map
+            (\{ body, docs } ->
+                if String.isEmpty docs then
+                    body ++ "\n\n\n"
+
+                else
+                    "{-| " ++ docs ++ "\n-}\n" ++ body ++ "\n\n\n"
+            )
 
 
 standardAliases : List ( List String, String )

@@ -90,9 +90,7 @@ test =
                     ]
                     |> expectEqualMultiline
                         (expected
-                            """
-
-T.start
+                            """T.start
     "test0"
     (Time.millisToPosix 0)
     config
@@ -117,9 +115,6 @@ T.start
            ]
         )
     ]
-    
-
-
     """
                         )
         ]
@@ -299,15 +294,11 @@ handlePortToJs { currentRequest } =
     Dict.get currentRequest.portName portRequests
 
 
-
 {-| Please don't modify or rename this function
 -}
 portRequests : Dict.Dict String ( String, Json.Encode.Value )
 portRequests =
     [] |> Dict.fromList
-
-
-
 
 
 {-| Please don't modify or rename this function
@@ -358,7 +349,7 @@ tests httpData =
                 (\\_ -> UnhandledMultiFileUpload)
                 domain
     in
-    ["""
+    [ """
         ++ tests
         ++ "]"
         |> String.replace "\u{000D}" ""
