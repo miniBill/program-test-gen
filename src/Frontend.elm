@@ -22,10 +22,10 @@ import Gen.Dict
 import Gen.Effect.Browser.Dom
 import Gen.Effect.Lamdera
 import Gen.Effect.Test
-import Gen.Effect.Time
 import Gen.Json.Decode
 import Gen.Json.Encode
 import Gen.Result
+import Gen.Time
 import Html
 import Html.Attributes
 import Icons
@@ -578,7 +578,6 @@ main =
 domain : Url
 domain =
     { protocol = Url.Http, host = "localhost", port_ = Just 8000, path = "", query = Nothing, fragment = Nothing }
-
 """
             |> String.replace "\u{000D}" ""
             |> UserCode
@@ -589,29 +588,21 @@ domain =
                 |> String.join "\n\n"
             )
         , """
-
-
 handlePortToJs : { currentRequest : T.PortToJs, data : T.Data FrontendModel BackendModel } -> Maybe ( String, Json.Decode.Value )
 handlePortToJs { currentRequest } =
     Dict.get currentRequest.portName portRequests
 
-
-{-| Please don't modify or rename this function
--}"""
+"""
             |> String.replace "\u{000D}" ""
             |> UserCode
         , PortRequestCode
         , """
 
-
-{-| Please don't modify or rename this function
--}"""
+"""
             |> String.replace "\u{000D}" ""
             |> UserCode
         , HttpRequestCode
         , """
-
-
 handleHttpRequests : Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
 handleHttpRequests httpData { currentRequest } =
     case Dict.get (currentRequest.method ++ "_" ++ currentRequest.url) httpRequests of
@@ -1134,7 +1125,7 @@ codegen parsedCode settings events =
     in
     if settings.showAllCode then
         let
-            httpRequests : String
+            httpRequests : Elm.Declaration
             httpRequests =
                 List.Extra.dropWhile (\a -> a.eventType /= ResetBackend) events
                     |> List.filterMap
@@ -1154,9 +1145,7 @@ codegen parsedCode settings events =
                     |> Elm.Op.pipe Gen.Dict.values_.fromList
                     |> Elm.withType (Gen.Dict.annotation_.dict Elm.Annotation.string Elm.Annotation.string)
                     |> Elm.declaration "httpRequests"
-                    |> Elm.ToString.declaration
-                    |> List.map .body
-                    |> String.join "\n\n"
+                    |> Elm.withDocumentation "Please don't modify or rename this function"
 
             localRequests : List ( String, String )
             localRequests =
@@ -1171,7 +1160,7 @@ codegen parsedCode settings events =
                     )
                     events
 
-            portRequests : String
+            portRequests : Elm.Declaration
             portRequests =
                 List.filterMap
                     (\event ->
@@ -1206,24 +1195,26 @@ codegen parsedCode settings events =
                             (Elm.Annotation.tuple Elm.Annotation.string Gen.Json.Encode.annotation_.value)
                         )
                     |> Elm.declaration "portRequests"
-                    |> Elm.ToString.declaration
-                    |> List.map .body
-                    |> String.join "\n\n"
+                    |> Elm.withDocumentation "Please don't modify or rename this function"
         in
-        List.map
+        List.concatMap
             (\codePart ->
                 case codePart of
                     UserCode code ->
-                        code
+                        [ code ]
 
                     HttpRequestCode ->
                         httpRequests
+                            |> Elm.ToString.declarationWith { aliases = standardAliases }
+                            |> List.map (\{ body, docs } -> "{-| " ++ docs ++ "\n-}\n" ++ body)
 
                     PortRequestCode ->
                         portRequests
+                            |> Elm.ToString.declarationWith { aliases = standardAliases }
+                            |> List.map (\{ body, docs } -> "{-| " ++ docs ++ "\n-}\n" ++ body)
 
                     TestEntryPoint ->
-                        testsText
+                        [ testsText ]
             )
             parsedCode.codeParts
             |> String.join "\n\n"
@@ -1243,10 +1234,11 @@ standardAliases =
 
 stringToJson : Elm.Declare.Function (Elm.Expression -> Elm.Expression)
 stringToJson =
-    Elm.Declare.fn "stringToJson" (Elm.Arg.var "json") <|
+    Elm.Declare.fn "stringToJson" (Elm.Arg.varWith "json" Elm.Annotation.string) <|
         \json ->
             Gen.Json.Decode.call_.decodeString Gen.Json.Decode.value json
                 |> Gen.Result.withDefault Gen.Json.Encode.null
+                |> Elm.withType Gen.Json.Encode.annotation_.value
 
 
 urlToStringNoDomain : String -> String
@@ -1283,14 +1275,20 @@ eventToExpression depth settings clients startTime events =
                                 { width = windowWidth
                                 , height = windowHeight
                                 }
-                                (\client ->
-                                    Elm.list
-                                        (eventToExpression (depth + 1)
-                                            settings
-                                            (Dict.insert clientId client clients)
-                                            startTime
-                                            events2
+                                (\arg ->
+                                    -- Workaround for better arg names
+                                    Elm.apply
+                                        (Elm.fn (Elm.Arg.var ("tab" ++ String.fromInt (1 + Dict.size clients))) <|
+                                            \client ->
+                                                Elm.list
+                                                    (eventToExpression (depth + 1)
+                                                        settings
+                                                        (Dict.insert clientId client clients)
+                                                        startTime
+                                                        events2
+                                                    )
                                         )
+                                        [ arg ]
                                 )
 
                 WindowResize2 clientId delay resizeEvent ->
@@ -1372,11 +1370,8 @@ eventToExpression depth settings clients startTime events =
                         (clientExpression clientId
                             |> Elm.get "clickLink"
                         )
-                        [ Elm.string
-                            (String.fromInt delay
-                                ++ " "
-                                ++ mouseEvent.path
-                            )
+                        [ Elm.int delay
+                        , Elm.string mouseEvent.path
                         ]
                         |> Just
 
@@ -1575,7 +1570,7 @@ testCode settings startTime testIndex events =
     in
     Gen.Effect.Test.start
         ("test" ++ String.fromInt testIndex)
-        (Gen.Effect.Time.millisToPosix startTime)
+        (Gen.Time.millisToPosix startTime)
         (Elm.val "config")
         events2
 
