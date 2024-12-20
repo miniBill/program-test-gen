@@ -22,7 +22,7 @@ test =
                     , showAllCode = True
                     }
                     []
-                    |> expectEqualMultiline (exampleCode "\n    ")
+                    |> expectEqualMultiline (exampleCode "\n    \n    ")
         , Test.test "Default codegen with one test" <|
             \_ ->
                 Frontend.codegen
