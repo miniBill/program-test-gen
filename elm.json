@@ -49,6 +49,7 @@
     },
     "test-dependencies": {
         "direct": {
+            "miniBill/elm-diff": "1.1.0",
             "wolfadex/elm-ansi": "3.0.0"
         },
         "indirect": {}
